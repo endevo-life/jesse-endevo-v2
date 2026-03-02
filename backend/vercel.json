@@ -2,7 +2,7 @@
   "version": 2,
   "functions": {
     "server.ts": {
-      "includeFiles": "logo_resized.png|Jesse-image.png"
+      "includeFiles": "*.png"
     }
   },
   "routes": [
