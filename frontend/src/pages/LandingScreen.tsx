@@ -16,7 +16,7 @@ const LandingScreen: React.FC<LandingScreenProps> = ({ onStart }) => {
       {/* Top Nav */}
       <nav className="landing-nav">
         <div className="brand-logo">
-          <img src="/logo_resized.png" alt="ENDevo" className="brand-logo-image" />
+          <img src="/logo_v2_with_white_text.png" alt="ENDevo" className="brand-logo-image" />
         </div>
       </nav>
 

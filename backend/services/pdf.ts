@@ -97,13 +97,13 @@ async function fetchChartImage(domainScores: DomainScores): Promise<Buffer | nul
     data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
     options: {
       cutoutPercentage: 65,
-      legend: { position: 'bottom', labels: { fontSize: 11, fontColor: '#475569' } },
+      legend: { position: 'right', labels: { fontSize: 10, fontColor: '#475569', padding: 10 } },
       plugins: { datalabels: { display: false } },
     },
   };
 
   try {
-    const url = `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify(config))}&w=320&h=240&f=png&bkg=white`;
+    const url = `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify(config))}&w=380&h=210&f=png&bkg=white`;
     const res = await axios.get<ArrayBuffer>(url, { responseType: 'arraybuffer', timeout: 6000 });
     return Buffer.from(res.data);
   } catch (err) {
@@ -206,7 +206,7 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
 
   // Logo in header
   if (logoImage) {
-    const d = logoImage.scaleToFit(148, 58);
+    const d = logoImage.scaleToFit(170, 66);
     p1.drawImage(logoImage, {
       x: margin,
       y: H - HEADER_H + (HEADER_H - d.height) / 2,
@@ -370,7 +370,7 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
     });
 
     if (logoImage) {
-      const fd = logoImage.scaleToFit(76, 30);
+      const fd = logoImage.scaleToFit(88, 34);
       // White backing so logo reads on dark footer
       drawRect(page, W - margin - fd.width - 8, (FOOTER_H - fd.height) / 2 - 4, fd.width + 16, fd.height + 8, WHITE);
       page.drawImage(logoImage, {
@@ -393,7 +393,7 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
       x: margin, y: H - 60, font: helvetica, size: 11, color: rgb(0.580, 0.659, 0.749),
     });
     if (logoImage) {
-      const hd = logoImage.scaleToFit(90, 44);
+      const hd = logoImage.scaleToFit(104, 50);
       const hx = W - margin - hd.width;
       const hy = H - PLAN_HDR_H + (PLAN_HDR_H - hd.height) / 2;
       drawRect(pg, hx - 6, hy - 4, hd.width + 12, hd.height + 8, WHITE);

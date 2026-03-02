@@ -1,13 +1,13 @@
-﻿import { Resend } from 'resend';
+import { Resend } from 'resend';
 import type { EmailSendParams, EmailSendResult } from '../types/index';
 import { ServiceError } from '../middleware/errorHandler';
 
-// ── Logo URL ──────────────────────────────────────────────────────────────────
-// Email clients (Gmail, Outlook, Apple Mail) block base64/data-URI images.
-// Use a direct public URL instead. Override via PUBLIC_LOGO_URL env var if needed.
-// Set PUBLIC_LOGO_URL on Vercel backend env vars → point to frontend URL /logo_resized.png
-const LOGO_URL = process.env.PUBLIC_LOGO_URL ?? '';
-// â”€â”€ Email HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Logo URL - must be a public HTTPS URL (email clients block base64/data-URI images)
+// Falls back to hosted frontend logo if PUBLIC_LOGO_URL env var is not set.
+const LOGO_URL =
+  process.env.PUBLIC_LOGO_URL ||
+  'https://jesse-endevo-mvp.vercel.app/logo_v2_with_white_text.png';
+
 function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: string): string {
   const tierColors: Record<string, string> = {
     'Peace Champion':  '#22C55E',
@@ -16,9 +16,6 @@ function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: 
     'Starting Fresh':  '#A855F7',
   };
   const tierColor = tierColors[tier] ?? '#1B2A4A';
-  const logoHtml = LOGO_URL
-    ? `<img src="${LOGO_URL}" alt="ENDevo" width="150" style="max-width:150px;height:auto;display:block;margin:0 auto 14px;" />`
-    : `<p style="margin:0 0 14px;color:#E8651A;font-size:13px;letter-spacing:2px;font-weight:bold;text-transform:uppercase;">ENDevo</p>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -36,9 +33,9 @@ function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: 
           <!-- Header -->
           <tr>
             <td style="background:#1B2A4A;padding:36px 40px 28px;text-align:center;">
-              ${logoHtml}
+              <img src="${LOGO_URL}" alt="ENDevo" width="180" style="max-width:180px;height:auto;display:block;margin:0 auto 14px;" />
               <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:bold;letter-spacing:0.5px;">Jesse</h1>
-              <p style="margin:6px 0 0;color:#94A3B8;font-size:13px;">Your Digital Readiness Guide Â· ENDevo</p>
+              <p style="margin:6px 0 0;color:#94A3B8;font-size:13px;">Your Digital Readiness Guide &middot; ENDevo</p>
             </td>
           </tr>
 
@@ -68,7 +65,7 @@ function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: 
               </table>
 
               <p style="margin:0 0 16px;font-size:15px;color:#475569;line-height:1.75;">
-                Open the attached PDF to see your full 7-Day Action Plan â€” specific, achievable steps chosen for your exact situation.
+                Open the attached PDF to see your full 7-Day Action Plan &mdash; specific, achievable steps chosen for your exact situation.
               </p>
 
               <p style="margin:0 0 32px;font-size:14px;color:#94A3B8;">
@@ -78,7 +75,7 @@ function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: 
               <p style="margin:0;font-size:15px;color:#475569;line-height:1.75;">
                 Warm regards,<br />
                 <strong style="color:#1B2A4A;">Jesse</strong><br />
-                <span style="color:#94A3B8;font-size:13px;">Digital Readiness Guide Â· ENDevo</span>
+                <span style="color:#94A3B8;font-size:13px;">Digital Readiness Guide &middot; ENDevo</span>
               </p>
             </td>
           </tr>
@@ -95,14 +92,13 @@ function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: 
           <!-- Footer -->
           <tr>
             <td style="background:#F8FAFC;border-top:1px solid #E2E8F0;padding:24px 40px;text-align:center;">
-              <p style="margin:0 0 6px;font-size:13px;color:#1B2A4A;font-weight:bold;">
-                ENDevo â€” Plan. Protect. Peace.
-              </p>
+              <p style="margin:0 0 2px;font-size:13px;color:#1B2A4A;font-weight:bold;">ENDevo</p>
+              <p style="margin:0 0 8px;font-size:13px;color:#1B2A4A;font-weight:bold;">Plan. Protect. Peace.</p>
               <p style="margin:0 0 10px;font-size:13px;color:#64748B;">
-                <a href="https://endevo.life" style="color:#E8651A;text-decoration:none;font-weight:bold;">endevo.life</a>
+                <a href="https://endevo.life" style="color:#E8651A;text-decoration:none;font-weight:bold;">https://endevo.life</a>
               </p>
               <p style="margin:0;font-size:11px;color:#CBD5E1;line-height:1.6;">
-                This is an educational plan. Not legal or financial advice.<br />Free of charge â€” no spam, ever.
+                This is an educational plan. Not legal or financial advice.<br />Free of charge. No spam, ever.
               </p>
             </td>
           </tr>
@@ -115,26 +111,26 @@ function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: 
 </html>`;
 }
 
-// â”€â”€ Send email via Resend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export async function sendPlanEmail({ name, email, score, tier, pdfBuffer }: EmailSendParams): Promise<EmailSendResult> {
   const apiKey = process.env.RESEND_API_KEY;
 
   if (!apiKey || apiKey === 'your_resend_api_key_here') {
-    console.log('[Email] No Resend API key â€” skipping email send');
+    console.log('[Email] No Resend API key - skipping email send');
     return { skipped: true };
   }
 
   const resend = new Resend(apiKey);
 
-  const now      = new Date();
-  const mm       = String(now.getMonth() + 1).padStart(2, '0');
-  const dd       = String(now.getDate()).padStart(2, '0');
-  const yyyy     = now.getFullYear();
+  const now         = new Date();
+  const mm          = String(now.getMonth() + 1).padStart(2, '0');
+  const dd          = String(now.getDate()).padStart(2, '0');
+  const yyyy        = now.getFullYear();
   const safeName    = name.replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '-');
   const pdfFilename = `${safeName}-7DayReadinessPlan-${mm}-${dd}-${yyyy}.pdf`;
 
   const maskedEmail = email.replace(/(.{2}).*(@.*)/, '$1***$2');
-  console.log(`[Email] Sending to ${maskedEmail} â€” file: ${pdfFilename}`);
+  console.log(`[Email] Sending to ${maskedEmail} - file: ${pdfFilename}`);
+  console.log(`[Email] Logo URL: ${LOGO_URL}`);
 
   const { data, error } = await resend.emails.send({
     from:     process.env.EMAIL_FROM     || 'hello@endevo.life',

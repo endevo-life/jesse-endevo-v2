@@ -50,24 +50,26 @@ input, textarea, select {
   width: 100%;
   display: flex;
   justify-content: flex-start;
-  padding: 1.25rem 2rem;
+  align-items: center;
+  padding: 0.875rem 2rem;
   position: relative;
   z-index: 2;
   flex-shrink: 0;
+  background: transparent;
 }
 
 .screen-nav-logo {
-  width: 110px;
+  width: 170px;
   height: auto;
   object-fit: contain;
 }
 
 @media (max-width: 480px) {
   .screen-nav {
-    padding: 1rem 1.25rem;
+    padding: 0.75rem 1.25rem;
   }
   .screen-nav-logo {
-    width: 88px;
+    width: 140px;
   }
 }
 

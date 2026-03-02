@@ -11,13 +11,15 @@
 /* Top bar */
 .quiz-topbar {
   width: 100%;
-  max-width: 700px;
+  align-self: stretch;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1.25rem 1.5rem 0;
+  padding: 0.875rem 2rem;
   position: relative;
   z-index: 2;
+  background: transparent;
+  flex-shrink: 0;
 }
 
 .quiz-nav-left {

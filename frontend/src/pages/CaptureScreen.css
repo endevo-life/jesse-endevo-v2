@@ -4,7 +4,6 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   padding: 0 1rem 2rem;
   position: relative;
 }
@@ -12,6 +11,7 @@
 .capture-card {
   width: 100%;
   max-width: 500px;
+  margin: auto;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 24px;
@@ -35,23 +35,31 @@
 
 .capture-avatar-ring {
   position: absolute;
-  width: 80px;
-  height: 80px;
+  width: 108px;
+  height: 108px;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(249,115,22,0.3) 0%, transparent 70%);
   animation: pulse 2.5s ease-in-out infinite;
 }
 
 .capture-avatar-inner {
-  width: 68px;
-  height: 68px;
+  width: 92px;
+  height: 92px;
   border-radius: 50%;
-  background: rgba(37,99,235,0.2);
-  border: 2px solid rgba(249,115,22,0.4);
+  overflow: hidden;
+  border: 3px solid rgba(249,115,22,0.6);
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
+}
+
+.capture-avatar-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 50%;
 }
 
 .capture-heading {

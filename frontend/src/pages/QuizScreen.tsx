@@ -50,7 +50,7 @@ const QuizScreen: React.FC<QuizScreenProps> = ({
       {/* Top bar */}
       <div className="quiz-topbar">
         <div className="quiz-nav-left">
-          <img src="/logo_resized.png" alt="ENDevo" className="screen-nav-logo" />
+          <img src="/logo_v2_with_white_text.png" alt="ENDevo" className="screen-nav-logo" />
           <button className="back-btn" onClick={onBack} aria-label="Go back">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <path d="M13 4l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

@@ -27,7 +27,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ isLongWait }) => {
       <div className="noise-overlay" />
 
       <nav className="screen-nav">
-        <img src="/logo_resized.png" alt="ENDevo" className="screen-nav-logo" />
+        <img src="/logo_v2_with_white_text.png" alt="ENDevo" className="screen-nav-logo" />
       </nav>
 
       <div className="loading-content">
