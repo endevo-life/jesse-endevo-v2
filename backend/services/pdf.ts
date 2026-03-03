@@ -97,13 +97,13 @@ async function fetchChartImage(domainScores: DomainScores): Promise<Buffer | nul
     data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
     options: {
       cutoutPercentage: 65,
-      legend: { position: 'right', labels: { fontSize: 10, fontColor: '#475569', padding: 10 } },
+      legend: { display: false },
       plugins: { datalabels: { display: false } },
     },
   };
 
   try {
-    const url = `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify(config))}&w=380&h=210&f=png&bkg=white`;
+    const url = `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify(config))}&w=220&h=220&f=png&bkg=white`;
     const res = await axios.get<ArrayBuffer>(url, { responseType: 'arraybuffer', timeout: 6000 });
     return Buffer.from(res.data);
   } catch (err) {
@@ -262,19 +262,22 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
     drawCircleImage(p1, jesseImage, jcx, jcy, jr, ORANGE, 3);
   }
 
-  // Chart (right side)
-  const chartTop = yPos - 170;
-  if (chartImage) {
-    const cd = chartImage.scaleToFit(255, 195);
-    p1.drawImage(chartImage, { x: W - margin - cd.width, y: chartTop - cd.height, width: cd.width, height: cd.height });
-  }
+  // ── Score breakdown: bars left | donut right + 2×2 legend below ─────────────
+  const chartTop    = yPos - 170;
+  const BAR_COL_W   = 215;                         // left column (progress bars)
+  const CHART_COL_X = margin + BAR_COL_W + 14;    // right column start x
+  const CHART_COL_W = W - margin - CHART_COL_X;   // right column width (~272 px)
 
-  // Domain bars (left side)
-  const barAreaW = inner * 0.52, barH = 13, barGap = 28;
-  p1.drawText('Your Score Breakdown', { x: margin, y: chartTop + 4, font: helveticaBold, size: 11, color: NAVY });
+  // Section title
+  p1.drawText('Your Score Breakdown', {
+    x: margin, y: chartTop + 4, font: helveticaBold, size: 11, color: NAVY,
+  });
+
+  // Domain progress bars (left column — width capped so % labels don't spill into chart)
+  const barAreaW = BAR_COL_W, barH = 13, barGap = 28;
   let barY = chartTop - 20;
   for (const [domain, raw] of Object.entries(domain_scores) as [keyof DomainScores, number][]) {
-    const pct = raw / DOMAIN_MAX[domain];
+    const pct   = raw / DOMAIN_MAX[domain];
     const label = DOMAIN_LABELS[domain] ?? domain;
     const bc    = DOMAIN_COLORS[domain] ?? ORANGE;
     p1.drawText(label, { x: margin, y: barY + 2, font: helvetica, size: 9, color: rgb(0.278, 0.365, 0.455) });
@@ -282,8 +285,47 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
     drawRect(p1, margin, barY, barAreaW, barH, LGREY);
     const fw = Math.round(barAreaW * pct);
     if (fw > 0) drawRect(p1, margin, barY, fw, barH, bc);
-    p1.drawText(`${Math.round(pct * 100)}%`, { x: margin + barAreaW + 5, y: barY + 2, font: helveticaBold, size: 8, color: bc });
+    p1.drawText(`${Math.round(pct * 100)}%`, { x: margin + barAreaW + 4, y: barY + 2, font: helveticaBold, size: 8, color: bc });
     barY -= barGap;
+  }
+
+  // Donut chart (right column, no embedded legend)
+  if (chartImage) {
+    const cd  = chartImage.scaleToFit(CHART_COL_W - 4, 168);
+    const cix = CHART_COL_X + Math.floor((CHART_COL_W - cd.width) / 2);
+    const ciy = chartTop - cd.height;
+    p1.drawImage(chartImage, { x: cix, y: ciy, width: cd.width, height: cd.height });
+
+    // 2×2 legend grid below the donut (coloured squares + label text)
+    const SQ        = 8;
+    const LEG_PAD   = 4;
+    const LEG_SIZE  = 7;
+    const LEG_ROW_H = 26;
+    const colW      = Math.floor(CHART_COL_W / 2);
+    const domainKeys = Object.keys(domain_scores) as (keyof DomainScores)[];
+    const legBaseY  = ciy - 12;   // top row sits 12 px below chart bottom
+
+    domainKeys.forEach((key, i) => {
+      const col   = i % 2;
+      const row   = Math.floor(i / 2);
+      const lx    = CHART_COL_X + col * colW;
+      const ly    = legBaseY - row * LEG_ROW_H;
+      const color = DOMAIN_COLORS[key] ?? ORANGE;
+      const label = DOMAIN_LABELS[key] ?? key;
+
+      // Coloured square
+      drawRect(p1, lx, ly, SQ, SQ, color);
+
+      // Label (wraps to 2 lines if needed)
+      const txtW = colW - SQ - LEG_PAD - 2;
+      wrapText(label, helvetica, LEG_SIZE, txtW).forEach((line, li) => {
+        p1.drawText(line, {
+          x: lx + SQ + LEG_PAD,
+          y: ly + 1 - li * (LEG_SIZE + 3),
+          font: helvetica, size: LEG_SIZE, color: MGREY,
+        });
+      });
+    });
   }
 
   // ── Journey tracker ────────────────────────────────────────────────────────
