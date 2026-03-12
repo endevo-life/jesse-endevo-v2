@@ -2,9 +2,8 @@ import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage, RGB, PDFImage,
          pushGraphicsState, popGraphicsState, clip, endPath,
          appendBezierCurve, moveTo, closePath } from 'pdf-lib';
 import axios from 'axios';
-import fs from 'fs';
-import path from 'path';
 import type { PDFGenerationParams, DomainScores } from '../types/index';
+import { LOGO_PNG_B64, JESSE_PNG_B64 } from '../assets';
 
 // ── Brand colours ─────────────────────────────────────────────────────────────
 const NAVY    = rgb(0.106, 0.165, 0.290); // #1B2A4A
@@ -45,18 +44,17 @@ const TIER_COLORS: Record<string, RGB> = {
 };
 
 // ── Asset loaders ────────────────────────────────────────────────────────────
-// process.cwd() = backend/ locally (node dist/server.js) and /var/task/ on Vercel
-const LOGO_PATH  = path.resolve(process.cwd(), 'logo_resized.png');
-const JESSE_PATH = path.resolve(process.cwd(), 'Jesse-image.png');
-
-function loadLogo(): Buffer | null {
-  try { return fs.readFileSync(LOGO_PATH); }
-  catch (_) { console.warn('[PDF] Logo not found at', LOGO_PATH); return null; }
+// Images are base64-embedded in assets.ts — no file-system access needed,
+// so this works identically on local dev and Vercel serverless.
+function loadLogo():  Buffer {
+  const buf = Buffer.from(LOGO_PNG_B64,  'base64');
+  console.log(`[PDF] Logo  loaded from embedded base64 (${Math.round(buf.length/1024)}KB)`);
+  return buf;
 }
-
-function loadJesse(): Buffer | null {
-  try { return fs.readFileSync(JESSE_PATH); }
-  catch (_) { console.warn('[PDF] Jesse image not found at', JESSE_PATH); return null; }
+function loadJesse(): Buffer {
+  const buf = Buffer.from(JESSE_PNG_B64, 'base64');
+  console.log(`[PDF] Jesse loaded from embedded base64 (${Math.round(buf.length/1024)}KB)`);
+  return buf;
 }
 
 // ── Circular clipped image ────────────────────────────────────────────────────
