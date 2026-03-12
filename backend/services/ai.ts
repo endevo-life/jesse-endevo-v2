@@ -253,13 +253,13 @@ export async function generatePlan(payload: AssessmentPayload): Promise<PlanResu
     const client    = new Anthropic({ apiKey });
     const { system, user } = buildPrompt(payload);
     const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS ?? '25000', 10);
-    const model     = process.env.AI_MODEL || 'claude-sonnet-4-6';
+    const model     = process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
 
     console.log(`[AI] Calling Claude (model: ${model}, timeout: ${timeoutMs}ms, tier: ${payload.tier})`);
 
     const response = await Promise.race([
       client.messages.create({
-        model:      process.env.AI_MODEL || 'claude-sonnet-4-6',
+        model:      process.env.AI_MODEL || 'claude-haiku-4-5-20251001',
         max_tokens: 1200,
         system,
         messages:   [{ role: 'user', content: user }],
