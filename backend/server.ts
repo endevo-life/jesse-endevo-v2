@@ -165,6 +165,13 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
+// ── Silence browser noise — favicon and root hits on the API domain ────────────
+app.get('/favicon.ico', (_req, res) => res.status(204).end());
+app.get('/favicon.png', (_req, res) => res.status(204).end());
+app.get('/', (_req: Request, res: Response) => {
+  res.json({ service: 'Jesse by ENDevo API', status: 'ok', health: '/api/health' });
+});
+
 // ── 404 — must come BEFORE the error handler ─────────────────────────────────
 app.use(notFoundHandler);
 
