@@ -2,7 +2,8 @@
   "version": 2,
   "functions": {
     "server.ts": {
-      "includeFiles": "*.png"
+      "includeFiles": "*.png",
+      "maxDuration": 30
     }
   },
   "routes": [
