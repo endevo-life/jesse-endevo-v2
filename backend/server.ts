@@ -153,7 +153,11 @@ app.post('/api/assess', asyncHandler(async (req: Request, res: Response) => {
   const t5 = Date.now();
   pushToGoHighLevel(payload)
     .then(() => console.log(`[assess] 5/5 GHL    pushed contact  (${Date.now()-t5}ms)`))
-    .catch((err: Error) => console.warn(`[assess] 5/5 GHL    FAILED (non-blocking): ${err.message}`));
+    .catch((err: unknown) => {
+      const msg   = err instanceof Error ? err.message : String(err);
+      const cause = err instanceof Error && (err as NodeJS.ErrnoException & { cause?: unknown }).cause;
+      console.warn(`[assess] 5/5 GHL    FAILED: ${msg}${cause ? ` | cause: ${cause}` : ''}`);
+    });
 
   // ── Done: 200 → frontend shows confirmation screen ────────────────────
   console.log(`[assess] ✓ DONE   total=${Date.now()-pipelineStart}ms`);

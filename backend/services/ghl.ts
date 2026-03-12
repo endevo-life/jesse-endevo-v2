@@ -22,8 +22,24 @@
 
 import type { AssessmentPayload } from '../types/index';
 
-const GHL_V2_BASE = 'https://services.leadconnectorhq.com';
-const GHL_V1_BASE = 'https://rest.gohighlevel.com/v1';
+const GHL_V2_BASE    = 'https://services.leadconnectorhq.com';
+const GHL_V1_BASE    = 'https://rest.gohighlevel.com/v1';
+const GHL_TIMEOUT_MS = 12_000; // 12 s — well inside Vercel's 30 s limit
+
+/** Fetch with an AbortController timeout. Throws on network error with cause. */
+async function ghlFetch(url: string, init: RequestInit): Promise<Response> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), GHL_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: ac.signal });
+  } catch (err) {
+    const cause = (err as { cause?: unknown }).cause;
+    const label = ac.signal.aborted ? `timeout (>${GHL_TIMEOUT_MS}ms)` : String(cause ?? err);
+    throw new Error(`GHL fetch failed [${url}]: ${label}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ── Tier → pipeline stage mapping ────────────────────────────────────────────
 const TIER_STAGE_ID: Record<string, string> = {
@@ -115,7 +131,7 @@ export async function pushToGoHighLevel(payload: AssessmentPayload): Promise<voi
 
   if (customFields.length > 0) upsertBody.customFields = customFields;
 
-  const upsertRes = await fetch(`${GHL_V2_BASE}/contacts/upsert`, {
+  const upsertRes = await ghlFetch(`${GHL_V2_BASE}/contacts/upsert`, {
     method:  'POST',
     headers,
     body:    JSON.stringify(upsertBody),
@@ -161,7 +177,7 @@ export async function pushToGoHighLevel(payload: AssessmentPayload): Promise<voi
 
   console.log(`[GHL] Creating opportunity: ${payload.tier}`);
 
-  const oppRes = await fetch(`${GHL_V1_BASE}/opportunities/`, {
+  const oppRes = await ghlFetch(`${GHL_V1_BASE}/opportunities/`, {
     method:  'POST',
     headers,
     body:    JSON.stringify({
@@ -199,7 +215,7 @@ async function v1FallbackUpsert(opts: {
 
   console.log('[GHL] v1 fallback — POST to create/find contact');
 
-  const createRes = await fetch(`${GHL_V1_BASE}/contacts/`, {
+  const createRes = await ghlFetch(`${GHL_V1_BASE}/contacts/`, {
     method:  'POST',
     headers,
     body:    JSON.stringify({
@@ -224,7 +240,7 @@ async function v1FallbackUpsert(opts: {
   if (lastName) updateBody.lastName = lastName;
   if (customFieldsV1.length > 0) updateBody.customField = customFieldsV1;
 
-  await fetch(`${GHL_V1_BASE}/contacts/${contactId}`, {
+  await ghlFetch(`${GHL_V1_BASE}/contacts/${contactId}`, {
     method:  'PUT',
     headers,
     body:    JSON.stringify(updateBody),
