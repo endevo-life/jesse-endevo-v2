@@ -7,6 +7,7 @@ import { score }          from './services/scoring';
 import { generatePlan }   from './services/ai';
 import { generatePDF }    from './services/pdf';
 import { sendPlanEmail }  from './services/email';
+import { pushToGoHighLevel } from './services/ghl';
 import {
   asyncHandler,
   errorHandler,
@@ -22,6 +23,9 @@ console.log('- NODE_ENV:', process.env.NODE_ENV || 'production');
 console.log('- VERCEL:', process.env.VERCEL || 'false');
 console.log('- RESEND_API_KEY exists:', !!process.env.RESEND_API_KEY);
 console.log('- ANTHROPIC_API_KEY exists:', !!process.env.ANTHROPIC_API_KEY);
+console.log('- GHL_API_KEY exists:', !!process.env.GHL_API_KEY);
+console.log('- GHL_LOCATION_ID:', process.env.GHL_LOCATION_ID || 'NOT SET');
+console.log('- GHL_PIPELINE_ID:', process.env.GHL_PIPELINE_ID || 'NOT SET (optional)');
 
 const app  = express();
 const PORT = process.env.PORT ?? 5000;
@@ -30,6 +34,8 @@ const PORT = process.env.PORT ?? 5000;
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:5176',
   'http://localhost:3000',
   'https://jesse-endevo-mvp.vercel.app',
   'https://*.vercel.app',
@@ -125,7 +131,7 @@ app.post('/api/assess', asyncHandler(async (req: Request, res: Response) => {
   });
 
   // ── Step 4: Send email via Resend with PDF attached ────────────────────
-  console.log(`[assess] Step 4/4 — Email send`);
+  console.log(`[assess] Step 4/5 — Email send`);
   await sendPlanEmail({
     name:      cleanName,
     email:     email as string,
@@ -134,7 +140,13 @@ app.post('/api/assess', asyncHandler(async (req: Request, res: Response) => {
     pdfBuffer,
   });
 
-  // ── Step 5: 200 → frontend shows confirmation screen ──────────────────
+  // ── Step 5: Push lead to GoHighLevel CRM (non-blocking) ───────────────
+  console.log(`[assess] Step 5/5 — GoHighLevel CRM push`);
+  pushToGoHighLevel(payload).catch((err: Error) =>
+    console.warn('[GHL] Push failed (non-blocking):', err.message)
+  );
+
+  // ── Done: 200 → frontend shows confirmation screen ────────────────────
   console.log(`[assess] Pipeline complete in ${Date.now() - pipelineStart}ms`);
   res.status(200).json({ success: true, message: 'Plan sent successfully' });
 }));
@@ -149,6 +161,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
     vercel:      !!process.env.VERCEL,
     resend:      !!process.env.RESEND_API_KEY,
     anthropic:   !!process.env.ANTHROPIC_API_KEY,
+    ghl:         !!process.env.GHL_API_KEY,
   });
 });
 
