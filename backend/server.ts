@@ -172,9 +172,10 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // ── Start (local dev) / Export (Vercel serverless) ───────────────────────────
-if (process.env.VERCEL) {
-  module.exports = app;
-} else {
+// Always export for Vercel — the listen() call is skipped when VERCEL is set
+module.exports = app;
+
+if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log('─────────────────────────────────────────');
     console.log(`🚀 Jesse Backend running on http://localhost:${PORT}`);
@@ -184,5 +185,3 @@ if (process.env.VERCEL) {
     console.log('─────────────────────────────────────────');
   });
 }
-
-module.exports = app;
