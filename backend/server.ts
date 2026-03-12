@@ -18,14 +18,17 @@ import type { Answer, AssessmentPayload } from './types/index';
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-console.log('🔧 Environment variables loaded:');
-console.log('- NODE_ENV:', process.env.NODE_ENV || 'production');
-console.log('- VERCEL:', process.env.VERCEL || 'false');
-console.log('- RESEND_API_KEY exists:', !!process.env.RESEND_API_KEY);
-console.log('- ANTHROPIC_API_KEY exists:', !!process.env.ANTHROPIC_API_KEY);
-console.log('- GHL_API_KEY exists:', !!process.env.GHL_API_KEY);
-console.log('- GHL_LOCATION_ID:', process.env.GHL_LOCATION_ID || 'NOT SET');
-console.log('- GHL_PIPELINE_ID:', process.env.GHL_PIPELINE_ID || 'NOT SET (optional)');
+const ENV_CHECK = [
+  `NODE_ENV=${process.env.NODE_ENV || 'production'}`,
+  `VERCEL=${process.env.VERCEL ? 'yes' : 'no'}`,
+  `RESEND=${process.env.RESEND_API_KEY ? '✓' : '✗ MISSING'}`,
+  `ANTHROPIC=${process.env.ANTHROPIC_API_KEY ? '✓' : '✗ MISSING'}`,
+  `GHL_KEY=${process.env.GHL_API_KEY ? '✓' : '✗ MISSING'}`,
+  `GHL_LOC=${process.env.GHL_LOCATION_ID || '✗ MISSING'}`,
+  `AI_MODEL=${process.env.AI_MODEL || 'default(haiku)'}`,
+  `AI_TIMEOUT=${process.env.AI_TIMEOUT_MS || 'default(25000)'}ms`,
+];
+console.log('[boot] Jesse backend starting —', ENV_CHECK.join(' | '));
 
 const app  = express();
 const PORT = process.env.PORT ?? 5000;
@@ -62,13 +65,15 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ── Request logging ───────────────────────────────────────────────────────────
-app.use((req: Request, _res: Response, next: NextFunction) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  if (req.body && Object.keys(req.body).length > 0) {
-    const safe = { ...req.body };
-    if (safe.email) safe.email = '***';
-    console.log('Request body:', safe);
-  }
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const start = Date.now();
+  const safe = req.body && Object.keys(req.body).length > 0 ? { ...req.body } : null;
+  if (safe?.email) safe.email = safe.email.replace(/(?<=.).(?=.*@)/g, '*');
+  if (safe?.answers) safe.answers = `[${(safe.answers as unknown[]).length} answers]`;
+  console.log(`[req] ${req.method} ${req.path}${safe ? ' body=' + JSON.stringify(safe) : ''}`);
+  res.on('finish', () => {
+    console.log(`[res] ${req.method} ${req.path} → ${res.statusCode} (${Date.now() - start}ms)`);
+  });
   next();
 });
 
@@ -96,11 +101,14 @@ app.post('/api/assess', asyncHandler(async (req: Request, res: Response) => {
   const cleanName = (name as string).trim();
 
   // ── Step 1: Score ──────────────────────────────────────────────────────
-  console.log(`[assess] Starting pipeline for "${cleanName}"`);
   const pipelineStart = Date.now();
+  console.log(`\n${'─'.repeat(56)}`);
+  console.log(`[assess] ▶ START  name="${cleanName}"  answers=${(answers as Answer[]).length}`);
 
-  console.log(`[assess] Step 1/4 — Scoring`);
+  // ── Step 1: Score ──────────────────────────────────────────────────────
+  const t1 = Date.now();
   const scored = score(answers as Answer[]);
+  console.log(`[assess] 1/5 SCORE  ${scored.readiness_score}/100  tier="${scored.tier}"  gaps=${scored.critical_gaps.length}  weakest=${scored.lowest_domain}  (${Date.now()-t1}ms)`);
 
   const payload: AssessmentPayload = {
     name:            cleanName,
@@ -113,15 +121,13 @@ app.post('/api/assess', asyncHandler(async (req: Request, res: Response) => {
     lowest_domain:   scored.lowest_domain,
   };
 
-  console.log(`[assess] Score: ${payload.readiness_score}/100  Tier: ${payload.tier}`);
-
   // ── Step 2: Generate AI plan (silent fallback on failure) ──────────────
-  console.log(`[assess] Step 2/4 — AI plan`);
+  const t2 = Date.now();
   const { plan, source } = await generatePlan(payload);
-  console.log(`[assess] Plan source: ${source}`);
+  console.log(`[assess] 2/5 AI     source=${source}  chars=${plan.length}  (${Date.now()-t2}ms)`);
 
   // ── Step 3: Generate branded PDF ──────────────────────────────────────
-  console.log(`[assess] Step 3/4 — PDF generation`);
+  const t3 = Date.now();
   const pdfBuffer = await generatePDF({
     name:            cleanName,
     readiness_score: payload.readiness_score,
@@ -129,25 +135,29 @@ app.post('/api/assess', asyncHandler(async (req: Request, res: Response) => {
     domain_scores:   payload.domain_scores,
     plan,
   });
+  console.log(`[assess] 3/5 PDF    size=${Math.round(pdfBuffer.length/1024)}KB  (${Date.now()-t3}ms)`);
 
   // ── Step 4: Send email via Resend with PDF attached ────────────────────
-  console.log(`[assess] Step 4/5 — Email send`);
-  await sendPlanEmail({
+  const t4 = Date.now();
+  const emailResult = await sendPlanEmail({
     name:      cleanName,
     email:     email as string,
     score:     payload.readiness_score,
     tier:      payload.tier,
     pdfBuffer,
   });
+  const emailStatus = 'skipped' in emailResult ? 'SKIPPED(no key)' : `sent id=${(emailResult as {id?:string}).id ?? 'unknown'}`;
+  console.log(`[assess] 4/5 EMAIL  ${emailStatus}  (${Date.now()-t4}ms)`);
 
   // ── Step 5: Push lead to GoHighLevel CRM (non-blocking) ───────────────
-  console.log(`[assess] Step 5/5 — GoHighLevel CRM push`);
-  pushToGoHighLevel(payload).catch((err: Error) =>
-    console.warn('[GHL] Push failed (non-blocking):', err.message)
-  );
+  const t5 = Date.now();
+  pushToGoHighLevel(payload)
+    .then(() => console.log(`[assess] 5/5 GHL    pushed contact  (${Date.now()-t5}ms)`))
+    .catch((err: Error) => console.warn(`[assess] 5/5 GHL    FAILED (non-blocking): ${err.message}`));
 
   // ── Done: 200 → frontend shows confirmation screen ────────────────────
-  console.log(`[assess] Pipeline complete in ${Date.now() - pipelineStart}ms`);
+  console.log(`[assess] ✓ DONE   total=${Date.now()-pipelineStart}ms`);
+  console.log(`${'─'.repeat(56)}\n`);
   res.status(200).json({ success: true, message: 'Plan sent successfully' });
 }));
 

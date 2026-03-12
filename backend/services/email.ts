@@ -2,6 +2,8 @@ import { Resend } from 'resend';
 import type { EmailSendParams, EmailSendResult } from '../types/index';
 import { ServiceError } from '../middleware/errorHandler';
 
+const LOG = '[email]';
+
 // Logo URL - must be a public HTTPS URL (email clients block base64/data-URI images)
 // Falls back to hosted frontend logo if PUBLIC_LOGO_URL env var is not set.
 const LOGO_URL =
