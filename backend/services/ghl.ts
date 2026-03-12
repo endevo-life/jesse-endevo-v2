@@ -22,7 +22,6 @@
 
 import type { AssessmentPayload } from '../types/index';
 
-const GHL_V2_BASE    = 'https://services.leadconnectorhq.com';
 const GHL_V1_BASE    = 'https://rest.gohighlevel.com/v1';
 const GHL_TIMEOUT_MS = 12_000; // 12 s — well inside Vercel's 30 s limit
 
@@ -79,7 +78,6 @@ export async function pushToGoHighLevel(payload: AssessmentPayload): Promise<voi
   const headers = {
     'Authorization': `Bearer ${apiKey}`,
     'Content-Type':  'application/json',
-    'Version':       '2021-07-28',
   };
 
   // ── Name split ───────────────────────────────────────────────────────────
@@ -95,77 +93,70 @@ export async function pushToGoHighLevel(payload: AssessmentPayload): Promise<voi
     'Jesse Quiz Completed',
   ];
 
-  // ── Custom fields (v2 format — field_value, not value) ───────────────────
-  const customFields: { id: string; field_value: string | number }[] = [];
+  // ── Custom fields (v1 format — id + value as string) ─────────────────────
+  const customField: { id: string; value: string }[] = [];
 
   if (process.env.GHL_FIELD_SCORE)
-    customFields.push({ id: process.env.GHL_FIELD_SCORE,         field_value: payload.readiness_score });
-
+    customField.push({ id: process.env.GHL_FIELD_SCORE,         value: String(payload.readiness_score) });
   if (process.env.GHL_FIELD_TIER)
-    customFields.push({ id: process.env.GHL_FIELD_TIER,          field_value: payload.tier });
-
+    customField.push({ id: process.env.GHL_FIELD_TIER,          value: payload.tier });
   if (process.env.GHL_FIELD_GAPS)
-    customFields.push({ id: process.env.GHL_FIELD_GAPS,          field_value: payload.critical_gaps.join(', ') });
-
+    customField.push({ id: process.env.GHL_FIELD_GAPS,          value: payload.critical_gaps.join(', ') });
   if (process.env.GHL_FIELD_LOWEST_DOMAIN)
-    customFields.push({ id: process.env.GHL_FIELD_LOWEST_DOMAIN, field_value: DOMAIN_LABELS[payload.lowest_domain] ?? payload.lowest_domain });
-
+    customField.push({ id: process.env.GHL_FIELD_LOWEST_DOMAIN, value: DOMAIN_LABELS[payload.lowest_domain] ?? payload.lowest_domain });
   if (process.env.GHL_FIELD_SIGNALS)
-    customFields.push({ id: process.env.GHL_FIELD_SIGNALS,       field_value: payload.jesse_signals.join(' | ') });
+    customField.push({ id: process.env.GHL_FIELD_SIGNALS,       value: payload.jesse_signals.join(' | ') });
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // SINGLE UPSERT CALL — v2 endpoint
-  // Creates contact if email not found, updates ALL fields if email exists.
-  // No separate PUT. No duplicate contacts.
-  // ──────────────────────────────────────────────────────────────────────────
-  console.log(`[GHL] Upserting contact for ${payload.email} (score: ${payload.readiness_score}, tier: ${payload.tier})`);
+  // ── Step 1: POST /v1/contacts/ — creates OR returns existing contact by email
+  console.log(`[GHL] POST contact — email: ${payload.email}, score: ${payload.readiness_score}, tier: ${payload.tier}`);
 
-  const upsertBody: Record<string, unknown> = {
+  const createBody: Record<string, unknown> = {
     firstName,
     ...(lastName ? { lastName } : {}),
     email:      payload.email,
     locationId,
-    tags,
     source:     'Jesse Quiz — ENDevo',
+    tags,
   };
+  if (customField.length > 0) createBody.customField = customField;
 
-  if (customFields.length > 0) upsertBody.customFields = customFields;
-
-  const upsertRes = await ghlFetch(`${GHL_V2_BASE}/contacts/upsert`, {
+  const createRes = await ghlFetch(`${GHL_V1_BASE}/contacts/`, {
     method:  'POST',
     headers,
-    body:    JSON.stringify(upsertBody),
+    body:    JSON.stringify(createBody),
   });
 
-  // ── Fallback to v1 POST+PUT if v2 upsert is rejected ─────────────────────
-  if (!upsertRes.ok) {
-    const errText = await upsertRes.text();
-    console.warn(`[GHL] v2 upsert returned ${upsertRes.status}: ${errText} — falling back to v1`);
-    await v1FallbackUpsert({
-      headers,
-      firstName,
-      lastName,
-      payload,
-      tags,
-      locationId,
-      customFieldsV1: customFields.map(f => ({ id: f.id, value: String(f.field_value) })),
-    });
-    return;
+  if (!createRes.ok) {
+    const err = await createRes.text();
+    throw new Error(`GHL contacts POST failed ${createRes.status}: ${err}`);
   }
 
-  const upsertData = await upsertRes.json() as {
-    contact?: { id?: string };
-    new?:     boolean;
-  };
+  const createData = await createRes.json() as { contact?: { id?: string } };
+  const contactId  = createData?.contact?.id;
+  if (!contactId) throw new Error('GHL: no contact ID in response');
 
-  const contactId = upsertData?.contact?.id;
-  const isNew     = upsertData?.new ?? false;
+  console.log(`[GHL] Contact ready — id: ${contactId} (tags: ${tags.length}, customFields: ${customField.length})`);
 
-  console.log(`[GHL] Contact ${isNew ? 'CREATED' : 'UPDATED'} — id: ${contactId}, tier: ${payload.tier}`);
+  // ── Step 2: PUT /v1/contacts/:id — force-overwrite tags + custom fields ──
+  const updateBody: Record<string, unknown> = { tags };
+  if (customField.length > 0) updateBody.customField = customField;
 
-  // ── Opportunity (only when pipeline is configured) ────────────────────────
-  if (!pipelineId || !contactId) {
-    console.log('[GHL] Skipping opportunity — GHL_PIPELINE_ID not set');
+  const updateRes = await ghlFetch(`${GHL_V1_BASE}/contacts/${contactId}`, {
+    method:  'PUT',
+    headers,
+    body:    JSON.stringify(updateBody),
+  });
+
+  if (!updateRes.ok) {
+    const err = await updateRes.text();
+    console.warn(`[GHL] PUT tags/fields failed ${updateRes.status}: ${err} (contact still created)`);
+  } else {
+    console.log(`[GHL] Tags + custom fields written — id: ${contactId}`);
+  }
+
+  // ── Step 3: Opportunity (only when pipeline is configured) ───────────────
+  if (!pipelineId) {
+    console.log('[GHL] No GHL_PIPELINE_ID — skipping opportunity');
     return;
   }
 
@@ -174,8 +165,6 @@ export async function pushToGoHighLevel(payload: AssessmentPayload): Promise<voi
     console.warn(`[GHL] No stage ID for tier "${payload.tier}" — skipping opportunity`);
     return;
   }
-
-  console.log(`[GHL] Creating opportunity: ${payload.tier}`);
 
   const oppRes = await ghlFetch(`${GHL_V1_BASE}/opportunities/`, {
     method:  'POST',
@@ -199,52 +188,4 @@ export async function pushToGoHighLevel(payload: AssessmentPayload): Promise<voi
 
   const oppData = await oppRes.json() as { opportunity?: { id?: string } };
   console.log(`[GHL] Opportunity created — id: ${oppData?.opportunity?.id ?? 'unknown'}`);
-}
-
-// ── v1 fallback: POST to create/find → PUT to force-overwrite fields ─────────
-async function v1FallbackUpsert(opts: {
-  headers:        Record<string, string>;
-  firstName:      string;
-  lastName:       string;
-  payload:        AssessmentPayload;
-  tags:           string[];
-  locationId:     string;
-  customFieldsV1: { id: string; value: string }[];
-}): Promise<void> {
-  const { headers, firstName, lastName, payload, tags, locationId, customFieldsV1 } = opts;
-
-  console.log('[GHL] v1 fallback — POST to create/find contact');
-
-  const createRes = await ghlFetch(`${GHL_V1_BASE}/contacts/`, {
-    method:  'POST',
-    headers,
-    body:    JSON.stringify({
-      firstName,
-      ...(lastName ? { lastName } : {}),
-      email:      payload.email,
-      locationId,
-      source:     'Jesse Quiz — ENDevo',
-    }),
-  });
-
-  if (!createRes.ok) {
-    const err = await createRes.text();
-    throw new Error(`[GHL] v1 contact create failed ${createRes.status}: ${err}`);
-  }
-
-  const createData = await createRes.json() as { contact?: { id?: string } };
-  const contactId  = createData?.contact?.id;
-  if (!contactId) throw new Error('[GHL] v1: no contact ID returned');
-
-  const updateBody: Record<string, unknown> = { firstName, tags };
-  if (lastName) updateBody.lastName = lastName;
-  if (customFieldsV1.length > 0) updateBody.customField = customFieldsV1;
-
-  await ghlFetch(`${GHL_V1_BASE}/contacts/${contactId}`, {
-    method:  'PUT',
-    headers,
-    body:    JSON.stringify(updateBody),
-  });
-
-  console.log(`[GHL] v1 fallback complete — id: ${contactId}, tier: ${payload.tier}`);
 }
