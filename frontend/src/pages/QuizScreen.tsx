@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { QUESTIONS } from "../data/questions";
+import { Question } from "../data/questions";
 import { UserAnswers } from "../types";
 import "./QuizScreen.css";
 
 interface QuizScreenProps {
+  questions: Question[];
   currentQuestion: number;
   answers: UserAnswers;
   onAnswer: (questionId: string, answerLabel: string, score: number, domain: string) => void;
@@ -11,6 +12,7 @@ interface QuizScreenProps {
 }
 
 const QuizScreen: React.FC<QuizScreenProps> = ({
+  questions,
   currentQuestion,
   answers,
   onAnswer,
@@ -20,8 +22,8 @@ const QuizScreen: React.FC<QuizScreenProps> = ({
   const [animating, setAnimating] = useState(false);
   const [visible, setVisible] = useState(true);
 
-  const q = QUESTIONS[currentQuestion];
-  const progressPct = ((currentQuestion) / QUESTIONS.length) * 100;
+  const q = questions[currentQuestion];
+  const progressPct = ((currentQuestion) / questions.length) * 100;
 
   // Reset selection on question change
   useEffect(() => {
@@ -58,7 +60,7 @@ const QuizScreen: React.FC<QuizScreenProps> = ({
           </button>
         </div>
         <div className="quiz-progress-info">
-          Q<strong>{currentQuestion + 1}</strong> of {QUESTIONS.length}
+          Q<strong>{currentQuestion + 1}</strong> of {questions.length}
         </div>
         <div className="quiz-brand" />
       </div>

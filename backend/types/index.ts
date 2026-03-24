@@ -2,25 +2,25 @@
 
 export type AnswerLetter = 'A' | 'B' | 'C' | 'D';
 
+export type DomainKey = 'legal' | 'financial' | 'physical' | 'digital';
+
 export interface Answer {
-  q: number;
+  q:      number;
+  domain: string;    // domain key: 'legal' | 'financial' | 'physical' | 'digital'
   answer: AnswerLetter;
 }
 
-export interface DomainScores {
-  access_ownership:    number;
-  data_loss:           number;
-  platform_limitation: number;
-  stewardship:         number;
-}
+// Stores percentage score (0–100) per assessed domain
+export type DomainScores = Partial<Record<DomainKey, number>>;
 
 export interface ScoringResult {
-  readiness_score: number;
-  tier:            string;
-  domain_scores:   DomainScores;
-  critical_gaps:   string[];
-  jesse_signals:   string[];
-  lowest_domain:   string;
+  readiness_score:   number;
+  tier:              string;
+  domain_scores:     DomainScores;
+  critical_gaps:     string[];
+  jesse_signals:     string[];
+  lowest_domain:     string;
+  completed_domains: DomainKey[];
 }
 
 export interface AssessmentPayload extends ScoringResult {

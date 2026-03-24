@@ -24,7 +24,7 @@ function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Your 7-Day Digital Readiness Plan from Jesse</title>
+  <title>Your End-of-Life Readiness Plan from Jesse</title>
 </head>
 <body style="margin:0;padding:0;background:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F4F8;padding:40px 0;">
@@ -37,7 +37,7 @@ function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: 
             <td style="background:#1B2A4A;padding:36px 40px 28px;text-align:center;">
               <img src="${LOGO_URL}" alt="ENDevo" width="180" style="max-width:180px;height:auto;display:block;margin:0 auto 14px;" />
               <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:bold;letter-spacing:0.5px;">Jesse</h1>
-              <p style="margin:6px 0 0;color:#94A3B8;font-size:13px;">Your Digital Readiness Guide &middot; ENDevo</p>
+              <p style="margin:6px 0 0;color:#94A3B8;font-size:13px;">Your End-of-Life Readiness Guide &middot; ENDevo</p>
             </td>
           </tr>
 
@@ -51,7 +51,7 @@ function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: 
 
               <p style="margin:0 0 24px;font-size:15px;color:#475569;line-height:1.75;">
                 Jesse has reviewed your answers and built your personalised
-                <strong style="color:#1B2A4A;">7-Day Digital Readiness Plan</strong>.
+                <strong style="color:#1B2A4A;">End-of-Life Readiness Plan</strong>.
                 Your full plan is attached to this email as a PDF.
               </p>
 
@@ -67,7 +67,7 @@ function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: 
               </table>
 
               <p style="margin:0 0 16px;font-size:15px;color:#475569;line-height:1.75;">
-                Open the attached PDF to see your full 7-Day Action Plan &mdash; specific, achievable steps chosen for your exact situation.
+                Open the attached PDF to see your full Readiness Plan &mdash; personalised, prioritised actions chosen for your exact situation.
               </p>
 
               <p style="margin:0 0 32px;font-size:14px;color:#94A3B8;">
@@ -77,7 +77,7 @@ function buildEmailHtml(name: string, score: number, tier: string, pdfFilename: 
               <p style="margin:0;font-size:15px;color:#475569;line-height:1.75;">
                 Warm regards,<br />
                 <strong style="color:#1B2A4A;">Jesse</strong><br />
-                <span style="color:#94A3B8;font-size:13px;">Digital Readiness Guide &middot; ENDevo</span>
+                <span style="color:#94A3B8;font-size:13px;">End-of-Life Readiness Guide &middot; ENDevo</span>
               </p>
             </td>
           </tr>
@@ -128,7 +128,7 @@ export async function sendPlanEmail({ name, email, score, tier, pdfBuffer }: Ema
   const dd          = String(now.getDate()).padStart(2, '0');
   const yyyy        = now.getFullYear();
   const safeName    = name.replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '-');
-  const pdfFilename = `${safeName}-7DayReadinessPlan-${mm}-${dd}-${yyyy}.pdf`;
+  const pdfFilename = `${safeName}-ReadinessPlan-${mm}-${dd}-${yyyy}.pdf`;
 
   const maskedEmail = email.replace(/(.{2}).*(@.*)/, '$1***$2');
   console.log(`[Email] Sending to ${maskedEmail} - file: ${pdfFilename}`);
@@ -138,7 +138,7 @@ export async function sendPlanEmail({ name, email, score, tier, pdfBuffer }: Ema
     from:     process.env.EMAIL_FROM     || 'hello@endevo.life',
     to:       email,
     reply_to: process.env.EMAIL_REPLY_TO || 'hello@endevo.life',
-    subject:  'Your 7-Day Digital Readiness Plan from Jesse',
+    subject:  'Your End-of-Life Readiness Plan from Jesse',
     html:     buildEmailHtml(name, score, tier, pdfFilename),
     attachments: [
       {

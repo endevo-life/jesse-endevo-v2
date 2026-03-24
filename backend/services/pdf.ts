@@ -2,7 +2,7 @@ import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage, RGB, PDFImage,
          pushGraphicsState, popGraphicsState, clip, endPath,
          appendBezierCurve, moveTo, closePath } from 'pdf-lib';
 import axios from 'axios';
-import type { PDFGenerationParams, DomainScores } from '../types/index';
+import type { PDFGenerationParams, DomainScores, DomainKey } from '../types/index';
 import { LOGO_PNG_B64, JESSE_PNG_B64 } from '../assets';
 
 // ── Brand colours ─────────────────────────────────────────────────────────────
@@ -15,25 +15,26 @@ const BLACK   = rgb(0.11,  0.11,  0.11);
 const LORANGE = rgb(0.996, 0.949, 0.929); // very light orange tint for NOTE bg
 
 // Domain chart colours
-const DOMAIN_COLORS: Record<keyof DomainScores, RGB> = {
-  access_ownership:    rgb(0.290, 0.565, 0.851),
-  data_loss:           rgb(0.176, 0.831, 0.745),
-  platform_limitation: rgb(0.910, 0.396, 0.102),
-  stewardship:         rgb(0.133, 0.773, 0.369),
+const DOMAIN_COLORS: Record<DomainKey, RGB> = {
+  legal:     rgb(0.290, 0.565, 0.851), // blue
+  financial: rgb(0.133, 0.773, 0.369), // green
+  physical:  rgb(0.176, 0.831, 0.745), // teal
+  digital:   rgb(0.910, 0.396, 0.102), // orange
 };
 
-const DOMAIN_LABELS: Record<keyof DomainScores, string> = {
-  access_ownership:    'Getting Into Your Accounts',
-  data_loss:           'Protecting Files & Memories',
-  platform_limitation: 'App & Online Safety',
-  stewardship:         'Family & Future Planning',
+const DOMAIN_LABELS: Record<DomainKey, string> = {
+  legal:     'Legal Readiness',
+  financial: 'Financial Readiness',
+  physical:  'Physical Readiness',
+  digital:   'Digital Readiness',
 };
 
-const DOMAIN_MAX: DomainScores = {
-  access_ownership:    40,
-  data_loss:           20,
-  platform_limitation: 20,
-  stewardship:         20,
+// domain_scores are already percentages (0–100); max is 100 for all
+const DOMAIN_MAX: Record<DomainKey, number> = {
+  legal:     100,
+  financial: 100,
+  physical:  100,
+  digital:   100,
 };
 
 const TIER_COLORS: Record<string, RGB> = {
@@ -159,9 +160,9 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
   const pdfDD       = String(pdfNow.getDate()).padStart(2, '0');
   const pdfYYYY     = pdfNow.getFullYear();
   const pdfSafeName = name.replace(/[^a-zA-Z0-9 ]/g, '').trim();
-  pdfDoc.setTitle(`${pdfSafeName} — 7-Day Digital Readiness Plan (${pdfMM}-${pdfDD}-${pdfYYYY})`);
+  pdfDoc.setTitle(`${pdfSafeName} — End-of-Life Readiness Plan (${pdfMM}-${pdfDD}-${pdfYYYY})`);
   pdfDoc.setAuthor('Jesse by ENDevo');
-  pdfDoc.setSubject('7-Day Digital Readiness Plan');
+  pdfDoc.setSubject('End-of-Life Readiness Plan');
   pdfDoc.setCreator('ENDevo — Plan. Protect. Peace.');
   pdfDoc.setProducer('Jesse by ENDevo · endevo.life');
 
@@ -217,7 +218,7 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
 
   // Right side header labels
   const dateStr     = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  const reportLabel = 'Digital Readiness Assessment';
+  const reportLabel = 'End-of-Life Readiness Assessment';
   const dateLabel   = `${name}  ·  ${dateStr}`;
   p1.drawText(reportLabel, {
     x: W - margin - helveticaBold.widthOfTextAtSize(reportLabel, 10),
@@ -274,8 +275,8 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
   // Domain progress bars (left column — width capped so % labels don't spill into chart)
   const barAreaW = BAR_COL_W, barH = 13, barGap = 28;
   let barY = chartTop - 20;
-  for (const [domain, raw] of Object.entries(domain_scores) as [keyof DomainScores, number][]) {
-    const pct   = raw / DOMAIN_MAX[domain];
+  for (const [domain, raw] of Object.entries(domain_scores) as [DomainKey, number][]) {
+    const pct   = (raw ?? 0) / (DOMAIN_MAX[domain] ?? 100);
     const label = DOMAIN_LABELS[domain] ?? domain;
     const bc    = DOMAIN_COLORS[domain] ?? ORANGE;
     p1.drawText(label, { x: margin, y: barY + 2, font: helvetica, size: 9, color: rgb(0.278, 0.365, 0.455) });
@@ -303,7 +304,7 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
     const domainKeys = Object.keys(domain_scores) as (keyof DomainScores)[];
     const legBaseY  = ciy - 12;   // top row sits 12 px below chart bottom
 
-    domainKeys.forEach((key, i) => {
+    domainKeys.forEach((key: DomainKey, i) => {
       const col   = i % 2;
       const row   = Math.floor(i / 2);
       const lx    = CHART_COL_X + col * colW;
@@ -326,52 +327,47 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
     });
   }
 
-  // ── Journey tracker ────────────────────────────────────────────────────────
-  const TRACK_Y     = 170; // y-center of circles
-  const CIRCLE_R    = 12;
-  const totalSpan   = inner;
-  const step        = totalSpan / 6; // spacing between 7 circles
+  // ── Domains Assessed summary strip ──────────────────────────────────────────
+  const TRACK_Y  = 170;
+  const STRIP_H  = 44;
+  const STRIP_Y  = TRACK_Y - STRIP_H / 2;
 
-  p1.drawText('YOUR 7-DAY JOURNEY', {
-    x: margin, y: TRACK_Y + CIRCLE_R + 18,
+  p1.drawText('DOMAINS ASSESSED', {
+    x: margin, y: STRIP_Y + STRIP_H + 6,
     font: helveticaBold, size: 8, color: NAVY,
   });
 
-  for (let d = 0; d < 7; d++) {
-    const cx = margin + d * step + CIRCLE_R;
-    const cy = TRACK_Y;
-    const isToday = d === 0;
-
-    // Circle fill / border
-    if (isToday) {
-      p1.drawEllipse({ x: cx, y: cy, xScale: CIRCLE_R, yScale: CIRCLE_R, color: ORANGE });
-    } else {
-      p1.drawEllipse({ x: cx, y: cy, xScale: CIRCLE_R, yScale: CIRCLE_R, borderColor: LGREY, borderWidth: 1, color: WHITE });
-    }
-
-    // Number inside circle
-    const num = `${d + 1}`;
-    const numW = (isToday ? helveticaBold : helvetica).widthOfTextAtSize(num, 8);
-    p1.drawText(num, {
-      x: cx - numW / 2, y: cy - 4,
-      font: isToday ? helveticaBold : helvetica,
-      size: 8,
-      color: isToday ? WHITE : MGREY,
+  const domainKeys = Object.keys(domain_scores) as DomainKey[];
+  const pillW      = domainKeys.length > 0 ? Math.min(inner / domainKeys.length - 8, 130) : 120;
+  domainKeys.forEach((dk, i) => {
+    const pct    = domain_scores[dk] ?? 0;
+    const color  = DOMAIN_COLORS[dk] ?? ORANGE;
+    const lx     = margin + i * (pillW + 8);
+    const ly     = STRIP_Y + 4;
+    // Pill background
+    drawRect(p1, lx, ly, pillW, STRIP_H - 8, LGREY);
+    // Score fill bar
+    const fw = Math.round(pillW * pct / 100);
+    if (fw > 0) drawRect(p1, lx, ly, fw, STRIP_H - 8, color);
+    // Domain label
+    const lbl  = DOMAIN_LABELS[dk] ?? dk;
+    const abbr = lbl.replace(' Readiness', '');
+    const lblW = helveticaBold.widthOfTextAtSize(abbr, 7);
+    p1.drawText(abbr, {
+      x: lx + (pillW - lblW) / 2, y: ly + STRIP_H - 19,
+      font: helveticaBold, size: 7, color: pct > 40 ? WHITE : NAVY,
     });
-
-    // Label below circle
-    const lbl = isToday ? 'Today' : `Day ${d + 1}`;
-    const lblW = helvetica.widthOfTextAtSize(lbl, 7);
-    p1.drawText(lbl, {
-      x: cx - lblW / 2, y: cy - CIRCLE_R - 11,
-      font: isToday ? helveticaBold : helvetica,
-      size: 7,
-      color: isToday ? ORANGE : MGREY,
+    // Percentage
+    const pctStr = `${pct}%`;
+    const pctW   = helveticaBold.widthOfTextAtSize(pctStr, 9);
+    p1.drawText(pctStr, {
+      x: lx + (pillW - pctW) / 2, y: ly + 6,
+      font: helveticaBold, size: 9, color: pct > 40 ? WHITE : NAVY,
     });
-  }
+  });
 
-  // Thin divider above tracker
-  drawRect(p1, margin, TRACK_Y + CIRCLE_R + 10, inner, 1, LGREY);
+  // Thin divider above strip
+  drawRect(p1, margin, STRIP_Y + STRIP_H + 2, inner, 1, LGREY);
 
   // Disclaimer footer
   p1.drawText(
@@ -426,7 +422,7 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
   function addPlanPage(): PDFPage {
     const pg = pdfDoc.addPage([W, H]);
     drawRect(pg, 0, H - PLAN_HDR_H, W, PLAN_HDR_H, NAVY);
-    pg.drawText('Your 7-Day Digital Readiness Plan', {
+    pg.drawText('Your End-of-Life Readiness Plan', {
       x: margin, y: H - 40, font: helveticaBold, size: 17, color: WHITE,
     });
     pg.drawText(`Prepared for ${name}  ·  ${tier}`, {

@@ -1,5 +1,7 @@
 export type AppScreen =
   | "landing"
+  | "auth"
+  | "domain-select"
   | "quiz"
   | "capture"
   | "loading"
@@ -17,4 +19,11 @@ export interface AssessmentPayload {
   name: string;
   email: string;
   answers: UserAnswers;
+}
+
+export interface GoogleUser {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string | null;
 }

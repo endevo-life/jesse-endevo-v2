@@ -7,10 +7,10 @@ export function calculateScore(answers: UserAnswers): number {
 
 export function getDomainBreakdown(answers: UserAnswers) {
   const domains: Record<string, { raw: number; max: number; pct: number }> = {
-    "Access & Ownership Risk": { raw: 0, max: 0, pct: 0 },
-    "Data Loss Risk": { raw: 0, max: 0, pct: 0 },
-    "Platform Limitation Risk": { raw: 0, max: 0, pct: 0 },
-    "Stewardship Risk": { raw: 0, max: 0, pct: 0 },
+    "Legal Readiness":     { raw: 0, max: 0, pct: 0 },
+    "Financial Readiness": { raw: 0, max: 0, pct: 0 },
+    "Physical Readiness":  { raw: 0, max: 0, pct: 0 },
+    "Digital Readiness":   { raw: 0, max: 0, pct: 0 },
   };
 
   QUESTIONS.forEach((q) => {

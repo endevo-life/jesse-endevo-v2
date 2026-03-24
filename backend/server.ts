@@ -14,7 +14,7 @@ import {
   notFoundHandler,
   ValidationError,
 } from './middleware/errorHandler';
-import type { Answer, AssessmentPayload } from './types/index';
+import type { Answer, AssessmentPayload, DomainKey } from './types/index';
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -80,21 +80,48 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // ── POST /api/assess ──────────────────────────────────────────────────────────
 // Body: { name: string, email: string, answers: [{q: number, answer: 'A'|'B'|'C'|'D'}] }
 app.post('/api/assess', asyncHandler(async (req: Request, res: Response) => {
-  const { name, email, answers } = req.body as { name?: unknown; email?: unknown; answers?: unknown };
+  const { name, email, answers, userId, domains } = req.body as {
+    name?:    unknown;
+    email?:   unknown;
+    answers?: unknown;
+    userId?:  string;
+    domains?: unknown;
+  };
 
-  // ── Input validation ────────────────────────────────────────────────────
+  // ── Input validation ───────────────────────────────────────────────────────
   if (!name || typeof name !== 'string' || !name.trim()) {
     throw new ValidationError('name is required');
   }
   if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new ValidationError('A valid email address is required');
   }
-  if (!Array.isArray(answers) || answers.length !== 10) {
-    throw new ValidationError('answers must be an array of exactly 10 items');
+  if (!Array.isArray(answers) || answers.length < 1 || answers.length > 70) {
+    throw new ValidationError('answers must be an array of 1–70 items');
   }
+  const validDomainKeys = ['legal', 'financial', 'physical', 'digital'];
   for (const item of answers as Record<string, unknown>[]) {
     if (!item.q || !['A', 'B', 'C', 'D'].includes(item.answer as string)) {
-      throw new ValidationError('Each answer must have q (1–10) and answer (A/B/C/D)');
+      throw new ValidationError('Each answer must have q (number) and answer (A/B/C/D)');
+    }
+    if (!item.domain || !validDomainKeys.includes(item.domain as string)) {
+      throw new ValidationError('Each answer must include a valid domain key');
+    }
+  }
+
+  // Extract completed domains (preserve order from request; deduplicate)
+  const completedDomains: DomainKey[] = [];
+  if (Array.isArray(domains)) {
+    for (const d of domains as string[]) {
+      if (validDomainKeys.includes(d) && !completedDomains.includes(d as DomainKey)) {
+        completedDomains.push(d as DomainKey);
+      }
+    }
+  }
+  // Fallback: infer from answers if domains array not provided
+  if (completedDomains.length === 0) {
+    for (const item of answers as Record<string, unknown>[]) {
+      const dk = item.domain as DomainKey;
+      if (!completedDomains.includes(dk)) completedDomains.push(dk);
     }
   }
 
@@ -107,18 +134,21 @@ app.post('/api/assess', asyncHandler(async (req: Request, res: Response) => {
 
   // ── Step 1: Score ──────────────────────────────────────────────────────
   const t1 = Date.now();
-  const scored = score(answers as Answer[]);
-  console.log(`[assess] 1/5 SCORE  ${scored.readiness_score}/100  tier="${scored.tier}"  gaps=${scored.critical_gaps.length}  weakest=${scored.lowest_domain}  (${Date.now()-t1}ms)`);
+  const scored = score(answers as Answer[], completedDomains);
+  console.log(`[assess] 1/5 SCORE  ${scored.readiness_score}/100  tier="${scored.tier}"  gaps=${scored.critical_gaps.length}  weakest=${scored.lowest_domain}  domains=[${completedDomains.join(',')}]  (${Date.now()-t1}ms)`);
+
+  if (userId) console.log(`[assess] userId=${userId} domains=[${completedDomains.join(',')}]`);
 
   const payload: AssessmentPayload = {
-    name:            cleanName,
-    email:           email as string,
-    readiness_score: scored.readiness_score,
-    tier:            scored.tier,
-    domain_scores:   scored.domain_scores,
-    critical_gaps:   scored.critical_gaps,
-    jesse_signals:   scored.jesse_signals,
-    lowest_domain:   scored.lowest_domain,
+    name:              cleanName,
+    email:             email as string,
+    readiness_score:   scored.readiness_score,
+    tier:              scored.tier,
+    domain_scores:     scored.domain_scores,
+    critical_gaps:     scored.critical_gaps,
+    jesse_signals:     scored.jesse_signals,
+    lowest_domain:     scored.lowest_domain,
+    completed_domains: scored.completed_domains,
   };
 
   // ── Step 2: Generate AI plan (silent fallback on failure) ──────────────
