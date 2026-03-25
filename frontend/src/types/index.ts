@@ -1,10 +1,10 @@
 export type AppScreen =
   | "landing"
   | "auth"
-  | "domain-select"
+  | "dashboard"
   | "quiz"
-  | "capture"
   | "loading"
+  | "domain-result"
   | "confirmation";
 
 export interface UserAnswers {
@@ -26,4 +26,13 @@ export interface GoogleUser {
   email: string;
   displayName: string;
   photoURL: string | null;
+}
+
+export interface DomainProgress {
+  domainKey:    string;
+  pctScore:     number;
+  tier:         string;
+  aiPlan:       string;
+  criticalGaps: string[];
+  completedAt:  string;
 }

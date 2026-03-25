@@ -1,38 +1,46 @@
 import { useState, useEffect } from "react";
-import { AppScreen, UserAnswers, GoogleUser } from "./types";
+import { AppScreen, UserAnswers, GoogleUser, DomainProgress } from "./types";
 import { QUESTIONS_BY_DOMAIN, DomainKey } from "./data/questions";
 import { API_ENDPOINTS } from "./api/config";
 import { onAuthChange, signOutUser } from "./lib/firebase";
 
-import LandingScreen from "./pages/LandingScreen";
-import AuthScreen from "./pages/AuthScreen";
-import DomainSelectScreen from "./pages/DomainSelectScreen";
-import QuizScreen from "./pages/QuizScreen";
-import CaptureScreen from "./pages/CaptureScreen";
-import LoadingScreen from "./pages/LoadingScreen";
-import ConfirmationScreen from "./pages/ConfirmationScreen";
+import LandingScreen       from "./pages/LandingScreen";
+import AuthScreen          from "./pages/AuthScreen";
+import DashboardScreen     from "./pages/DashboardScreen";
+import DomainResultScreen  from "./pages/DomainResultScreen";
+import QuizScreen          from "./pages/QuizScreen";
+import LoadingScreen       from "./pages/LoadingScreen";
+import ConfirmationScreen  from "./pages/ConfirmationScreen";
 
 function App() {
   const [screen, setScreen]                   = useState<AppScreen>("landing");
+  const [user, setUser]                       = useState<GoogleUser | null>(null);
+  const [sessions, setSessions]               = useState<DomainProgress[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+
+  // Quiz state
+  const [selectedDomain, setSelectedDomain]   = useState<DomainKey | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers]                 = useState<UserAnswers>({});
-  const [allAnswers, setAllAnswers]           = useState<UserAnswers>({});
-  const [completedDomains, setCompletedDomains] = useState<DomainKey[]>([]);
-  const [userName, setUserName]               = useState("");
-  const [isLongWait, setIsLongWait]           = useState(false);
-  const [user, setUser]                       = useState<GoogleUser | null>(null);
-  const [selectedDomain, setSelectedDomain]   = useState<DomainKey | null>(null);
 
-  // Listen for Firebase auth state
+  // Loading state
+  const [isLongWait, setIsLongWait]           = useState(false);
+  const [userName]                            = useState("");
+
+  // Domain result state
+  const [lastResult, setLastResult] = useState<{ pctScore: number; tier: string } | null>(null);
+
+  // ── Firebase auth listener ──────────────────────────────────────────────────
   useEffect(() => {
     const unsub = onAuthChange((firebaseUser) => {
       if (firebaseUser) {
-        setUser({
+        const u: GoogleUser = {
           uid:         firebaseUser.uid,
           email:       firebaseUser.email ?? "",
           displayName: firebaseUser.displayName ?? "Friend",
           photoURL:    firebaseUser.photoURL,
-        });
+        };
+        setUser(u);
       } else {
         setUser(null);
       }
@@ -40,59 +48,81 @@ function App() {
     return unsub;
   }, []);
 
-  // Long-wait timeout handler
+  // ── Load sessions when user is set and on dashboard ────────────────────────
   useEffect(() => {
-    if (screen !== "loading") {
-      setIsLongWait(false);
-      return;
-    }
-    const timer = setTimeout(() => setIsLongWait(true), 15000);
-    return () => clearTimeout(timer);
+    if (!user) return;
+    loadSessions(user.uid);
+    // Upsert user meta in background
+    fetch(API_ENDPOINTS.userMeta(user.uid), {
+      method:  "PUT",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        email:       user.email,
+        displayName: user.displayName,
+        photoURL:    user.photoURL,
+      }),
+    }).catch(() => {/* non-critical */});
+  }, [user?.uid]);
+
+  // ── Long-wait toast ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (screen !== "loading") { setIsLongWait(false); return; }
+    const t = setTimeout(() => setIsLongWait(true), 15000);
+    return () => clearTimeout(t);
   }, [screen]);
 
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+  async function loadSessions(uid: string) {
+    setSessionsLoading(true);
+    try {
+      const res  = await fetch(API_ENDPOINTS.user(uid));
+      const data = await res.json();
+      if (data.success && Array.isArray(data.sessions)) {
+        setSessions(data.sessions as DomainProgress[]);
+      }
+    } catch {
+      // non-critical — dashboard still works with empty state
+    } finally {
+      setSessionsLoading(false);
+    }
+  }
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
   const handleStart = () => setScreen("auth");
 
   const handleAuth = (uid: string, email: string, name: string, photoURL: string | null) => {
     setUser({ uid, email, displayName: name, photoURL });
-    setScreen("domain-select");
+    setScreen("dashboard");
   };
 
-  const handleDomainSelect = (domainKey: DomainKey) => {
+  const handleSignOut = async () => {
+    await signOutUser();
+    setUser(null);
+    setSessions([]);
+    setSelectedDomain(null);
+    setAnswers({});
+    setCurrentQuestion(0);
+    setScreen("landing");
+  };
+
+  const handleDomainStart = (domainKey: DomainKey) => {
     setSelectedDomain(domainKey);
     setAnswers({});
     setCurrentQuestion(0);
     setScreen("quiz");
   };
 
-  const handleSignOut = async () => {
-    await signOutUser();
-    setUser(null);
-    setSelectedDomain(null);
-    setAnswers({});
-    setAllAnswers({});
-    setCompletedDomains([]);
-    setCurrentQuestion(0);
-    setScreen("landing");
-  };
-
   const activeQuestions = selectedDomain ? QUESTIONS_BY_DOMAIN[selectedDomain] : [];
 
   const handleAnswer = (questionId: string, answer: string, score: number, domain: string) => {
-    const newAnswers = {
-      ...answers,
-      [questionId]: { answer, score, domain },
-    };
+    const newAnswers = { ...answers, [questionId]: { answer, score, domain } };
     setAnswers(newAnswers);
 
     if (currentQuestion < activeQuestions.length - 1) {
       setCurrentQuestion((prev) => prev + 1);
     } else {
-      // Domain complete — merge into allAnswers, mark done, return to domain select
-      setAllAnswers((prev) => ({ ...prev, ...newAnswers }));
-      setCompletedDomains((prev) => [...prev, selectedDomain!]);
-      setAnswers({});
-      setCurrentQuestion(0);
-      setScreen("domain-select");
+      // Domain quiz complete — submit to backend
+      handleDomainComplete(newAnswers);
     }
   };
 
@@ -100,47 +130,54 @@ function App() {
     if (currentQuestion > 0) {
       setCurrentQuestion((prev) => prev - 1);
     } else {
-      setScreen("domain-select");
+      setScreen("dashboard");
       setCurrentQuestion(0);
     }
   };
 
-  const handleSubmitReport = () => setScreen("capture");
-
-  const handleCapture = async (name: string, email: string) => {
-    setUserName(name);
+  const handleDomainComplete = async (finalAnswers: UserAnswers) => {
+    if (!user || !selectedDomain) return;
     setScreen("loading");
 
-    // Build a flat answers array from ALL completed domains in order
-    const answersArray = completedDomains.flatMap((dk) =>
-      QUESTIONS_BY_DOMAIN[dk].map((q) => ({
-        q:      q.number,
-        domain: dk,
-        answer: allAnswers[q.id]?.answer ?? "A",
-      }))
-    );
-
-    const payload = {
-      name,
-      email,
-      userId:  user?.uid ?? null,
-      domains: completedDomains,
-      answers: answersArray,
-    };
+    const answersArray = activeQuestions.map((q) => ({
+      q:      q.number,
+      domain: selectedDomain,
+      answer: finalAnswers[q.id]?.answer ?? "A",
+    }));
 
     try {
-      const response = await fetch(API_ENDPOINTS.assess, {
+      const res  = await fetch(API_ENDPOINTS.assessDomain, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(payload),
+        body:    JSON.stringify({
+          userId:    user.uid,
+          name:      user.displayName.split(" ")[0],
+          email:     user.email,
+          domainKey: selectedDomain,
+          answers:   answersArray,
+        }),
       });
-
-      if (!response.ok) throw new Error("API error");
+      const data = await res.json();
+      if (data.success) {
+        const newSession: DomainProgress = {
+          domainKey:    data.domainKey,
+          pctScore:     data.pctScore,
+          tier:         data.tier,
+          aiPlan:       data.aiPlan,
+          criticalGaps: data.criticalGaps,
+          completedAt:  data.completedAt,
+        };
+        setSessions((prev) => {
+          const filtered = prev.filter(s => s.domainKey !== data.domainKey);
+          return [...filtered, newSession];
+        });
+      }
     } catch (err) {
-      console.warn("API call failed — showing confirmation anyway", err);
+      console.warn("Domain assess failed:", err);
     }
 
-    setScreen("confirmation");
+    setLastResult(data.success ? { pctScore: data.pctScore, tier: data.tier } : null);
+    setScreen("domain-result");
   };
 
   return (
@@ -149,13 +186,13 @@ function App() {
 
       {screen === "auth" && <AuthScreen onAuth={handleAuth} />}
 
-      {screen === "domain-select" && user && (
-        <DomainSelectScreen
+      {screen === "dashboard" && user && (
+        <DashboardScreen
           user={user}
-          onSelect={handleDomainSelect}
+          sessions={sessions}
+          loading={sessionsLoading}
+          onStart={handleDomainStart}
           onSignOut={handleSignOut}
-          completedDomains={completedDomains}
-          onSubmit={handleSubmitReport}
         />
       )}
 
@@ -169,20 +206,16 @@ function App() {
         />
       )}
 
-      {screen === "capture" && user && (
-        <CaptureScreen
-          name={user.displayName.split(" ")[0]}
-          email={user.email}
-          photoURL={user.photoURL}
-          completedDomains={completedDomains}
-          onSubmit={() => handleCapture(
-            user!.displayName.split(" ")[0],
-            user!.email
-          )}
+      {screen === "loading" && <LoadingScreen isLongWait={isLongWait} />}
+
+      {screen === "domain-result" && selectedDomain && lastResult && (
+        <DomainResultScreen
+          domainKey={selectedDomain}
+          pctScore={lastResult.pctScore}
+          tier={lastResult.tier}
+          onContinue={() => { setSelectedDomain(null); setScreen("dashboard"); }}
         />
       )}
-
-      {screen === "loading" && <LoadingScreen isLongWait={isLongWait} />}
 
       {screen === "confirmation" && <ConfirmationScreen name={userName} />}
     </>

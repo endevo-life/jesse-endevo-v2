@@ -141,9 +141,11 @@ export function score(answers: Answer[], completedDomains: DomainKey[]): Scoring
     for (const { q, answer } of dAnswers) {
       raw += POINTS[answer] ?? 0;
       if (answer === 'C' || answer === 'D') {
-        criticalGaps.push(`${dk.toUpperCase()}-Q${q}-${answer}`);
         const sig = SIGNALS[dk]?.[q]?.[answer as 'C' | 'D'];
-        if (sig) jesseSignals.push(sig);
+        if (sig) {
+          criticalGaps.push(sig);
+          jesseSignals.push(sig);
+        }
       }
     }
 

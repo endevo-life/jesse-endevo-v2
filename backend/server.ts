@@ -3,18 +3,20 @@ import dotenv from 'dotenv';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 
-import { score }          from './services/scoring';
-import { generatePlan }   from './services/ai';
-import { generatePDF }    from './services/pdf';
-import { sendPlanEmail }  from './services/email';
+import { score }             from './services/scoring';
+import { generatePlan }      from './services/ai';
+import { generatePDF }       from './services/pdf';
+import { sendPlanEmail }     from './services/email';
 import { pushToGoHighLevel } from './services/ghl';
+import { saveSession, getUserSessions, upsertUserMeta, deleteAllUserSessions, isDynamoEnabled } from './services/dynamo';
+import { retrieveKnowledge, buildKBQuery, isBedrockEnabled } from './services/bedrock';
 import {
   asyncHandler,
   errorHandler,
   notFoundHandler,
   ValidationError,
 } from './middleware/errorHandler';
-import type { Answer, AssessmentPayload, DomainKey } from './types/index';
+import type { Answer, AssessmentPayload, DomainKey, DomainScores, DomainSession, DomainAssessBody } from './types/index';
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -24,9 +26,9 @@ const ENV_CHECK = [
   `RESEND=${process.env.RESEND_API_KEY ? '✓' : '✗ MISSING'}`,
   `ANTHROPIC=${process.env.ANTHROPIC_API_KEY ? '✓' : '✗ MISSING'}`,
   `GHL_KEY=${process.env.GHL_API_KEY ? '✓' : '✗ MISSING'}`,
-  `GHL_LOC=${process.env.GHL_LOCATION_ID || '✗ MISSING'}`,
   `AI_MODEL=${process.env.AI_MODEL || 'default(haiku)'}`,
-  `AI_TIMEOUT=${process.env.AI_TIMEOUT_MS || 'default(25000)'}ms`,
+  `DYNAMO=${process.env.AWS_ACCESS_KEY_ID ? '✓' : '✗ not configured'}`,
+  `BEDROCK=${process.env.BEDROCK_KNOWLEDGE_BASE_ID ? '✓' : '✗ not configured'}`,
 ];
 console.log('[boot] Jesse backend starting —', ENV_CHECK.join(' | '));
 
@@ -195,6 +197,160 @@ app.post('/api/assess', asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ success: true, message: 'Plan sent successfully' });
 }));
 
+// ── POST /api/assess/domain — single-domain assessment, saves to DB ──────────
+app.post('/api/assess/domain', asyncHandler(async (req: Request, res: Response) => {
+  const { userId, name, email, domainKey, answers } = req.body as DomainAssessBody & Record<string, unknown>;
+
+  if (!userId || typeof userId !== 'string')          throw new ValidationError('userId is required');
+  if (!name   || typeof name   !== 'string')          throw new ValidationError('name is required');
+  if (!email  || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email as string)) throw new ValidationError('valid email required');
+  const validDomains = ['legal', 'financial', 'physical', 'digital'];
+  if (!domainKey || !validDomains.includes(domainKey as string)) throw new ValidationError('valid domainKey required');
+  if (!Array.isArray(answers) || answers.length < 1 || answers.length > 15) throw new ValidationError('answers must be 1–15 items');
+
+  const cleanName = (name as string).trim();
+  console.log(`\n[assess/domain] ▶ userId=${userId}  domain=${domainKey}  answers=${(answers as Answer[]).length}`);
+
+  // Score this single domain
+  const t1 = Date.now();
+  const scored = score(answers as Answer[], [domainKey as DomainKey]);
+  const pctScore = scored.domain_scores[domainKey as DomainKey] ?? 0;
+  console.log(`[assess/domain] 1/3 SCORE  ${pctScore}%  tier=${scored.tier}  (${Date.now()-t1}ms)`);
+
+  // Retrieve Bedrock KB context (RAG) — graceful no-op if not configured
+  const t2 = Date.now();
+  const kbQuery = buildKBQuery(domainKey as string, scored.critical_gaps, pctScore);
+  const knowledgeContext = await retrieveKnowledge(kbQuery).catch(() => '');
+  if (knowledgeContext) console.log(`[assess/domain] 2a RAG     ${knowledgeContext.length} chars retrieved  (${Date.now()-t2}ms)`);
+
+  // Generate domain-specific AI plan
+  const t2b = Date.now();
+  const payload: AssessmentPayload = {
+    name:              cleanName,
+    email:             email as string,
+    readiness_score:   pctScore,
+    tier:              scored.tier,
+    domain_scores:     scored.domain_scores,
+    critical_gaps:     scored.critical_gaps,
+    jesse_signals:     scored.jesse_signals,
+    lowest_domain:     domainKey as string,
+    completed_domains: [domainKey as DomainKey],
+  };
+  const { plan, source } = await generatePlan(payload, knowledgeContext || undefined);
+  console.log(`[assess/domain] 2/3 AI     source=${source}  chars=${plan.length}  (${Date.now()-t2b}ms)`);
+
+  // Save session to DynamoDB (non-blocking on failure)
+  const t3 = Date.now();
+  const session: DomainSession = {
+    userId,
+    domainKey:    domainKey as DomainKey,
+    sessionId:    domainKey as string,   // SK in DynamoDB = domainKey
+    email:        email as string,
+    displayName:  cleanName,
+    answers:      answers as Answer[],
+    pctScore,
+    tier:         scored.tier,
+    aiPlan:       plan,
+    criticalGaps: scored.critical_gaps,
+    completedAt:  new Date().toISOString(),
+  };
+  await saveSession(session).catch(e => console.warn('[assess/domain] dynamo failed:', e));
+  console.log(`[assess/domain] 3/3 SAVED  dynamo=${isDynamoEnabled()}  (${Date.now()-t3}ms)`);
+
+  res.status(200).json({
+    success:      true,
+    domainKey,
+    pctScore,
+    tier:         scored.tier,
+    aiPlan:       plan,
+    criticalGaps: scored.critical_gaps,
+    completedAt:  session.completedAt,
+  });
+}));
+
+// ── POST /api/report/pdf — generate + return PDF as binary download ───────────
+// Fetches sessions from DynamoDB (or accepts them in body as fallback)
+app.post('/api/report/pdf', asyncHandler(async (req: Request, res: Response) => {
+  const { userId, name, sessions: bodySessions } = req.body as {
+    userId?:   string;
+    name?:     string;
+    sessions?: DomainSession[];
+  };
+
+  if (!name || typeof name !== 'string') throw new ValidationError('name is required');
+
+  // Prefer DynamoDB; fall back to sessions passed in body
+  let sessions: DomainSession[] = [];
+  if (userId) {
+    sessions = await getUserSessions(userId).catch(() => []);
+  }
+  if (sessions.length === 0 && Array.isArray(bodySessions)) {
+    sessions = bodySessions;
+  }
+  if (sessions.length === 0) throw new ValidationError('No completed sessions found for this user');
+
+  // Build combined params for generatePDF
+  const domain_scores: DomainScores = {};
+  const planParts: string[] = [];
+  let totalPct = 0;
+
+  for (const s of sessions) {
+    domain_scores[s.domainKey] = s.pctScore;
+    totalPct += s.pctScore;
+    const domainLabel = s.domainKey.charAt(0).toUpperCase() + s.domainKey.slice(1) + ' Readiness';
+    planParts.push(`=== ${domainLabel} ===\n${s.aiPlan}`);
+  }
+
+  const readiness_score = Math.round(totalPct / sessions.length);
+  const tier = readiness_score >= 85 ? 'Peace Champion'
+             : readiness_score >= 60 ? 'On Your Way'
+             : readiness_score >= 35 ? 'Getting Clarity'
+             : 'Starting Fresh';
+
+  console.log(`[report/pdf] generating  user="${name}"  domains=[${sessions.map(s=>s.domainKey).join(',')}]  score=${readiness_score}`);
+
+  const pdfBuffer = await generatePDF({
+    name:            name.trim(),
+    readiness_score,
+    tier,
+    domain_scores,
+    plan:            planParts.join('\n\n'),
+  });
+
+  const safeName  = name.trim().replace(/[^a-zA-Z0-9]/g, '_');
+  const dateStamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}_Readiness_Report_${dateStamp}.pdf"`);
+  res.setHeader('Content-Length', pdfBuffer.length);
+  res.send(pdfBuffer);
+}));
+
+// ── GET /api/user/:uid — fetch all domain sessions (dashboard load) ────────────
+app.get('/api/user/:uid', asyncHandler(async (req: Request, res: Response) => {
+  const uid = req.params['uid'] as string;
+  if (!uid) throw new ValidationError('userId required');
+  const sessions = await getUserSessions(uid);
+  res.json({ success: true, sessions });
+}));
+
+// ── PUT /api/user/:uid/meta — upsert profile on sign-in ──────────────────────
+app.put('/api/user/:uid/meta', asyncHandler(async (req: Request, res: Response) => {
+  const uid = req.params['uid'] as string;
+  const { email, displayName, photoURL } = req.body as Record<string, string>;
+  if (!uid || !email || !displayName) throw new ValidationError('uid, email, displayName required');
+  await upsertUserMeta({ userId: uid, email, displayName, photoURL: photoURL ?? null });
+  res.json({ success: true });
+}));
+
+// ── DELETE /api/user/:uid/reset — wipe all domain sessions for this user ──────
+app.delete('/api/user/:uid/reset', asyncHandler(async (req: Request, res: Response) => {
+  const uid = req.params['uid'] as string;
+  if (!uid) throw new ValidationError('userId required');
+  await deleteAllUserSessions(uid);
+  console.log(`[reset] all sessions deleted  userId=${uid}`);
+  res.json({ success: true, message: 'All sessions reset' });
+}));
+
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
@@ -206,6 +362,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
     resend:      !!process.env.RESEND_API_KEY,
     anthropic:   !!process.env.ANTHROPIC_API_KEY,
     ghl:         !!process.env.GHL_API_KEY,
+    dynamo:      isDynamoEnabled(),
   });
 });
 

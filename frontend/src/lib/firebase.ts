@@ -23,3 +23,12 @@ export const signOutUser = () => signOut(auth);
 
 export const onAuthChange = (cb: (user: User | null) => void) =>
   onAuthStateChanged(auth, cb);
+
+// Request Google Drive file scope — returns the OAuth access token needed to upload
+export const signInWithGoogleDrive = async (): Promise<string | null> => {
+  const driveProvider = new GoogleAuthProvider();
+  driveProvider.addScope("https://www.googleapis.com/auth/drive.file");
+  const result     = await signInWithPopup(auth, driveProvider);
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  return credential?.accessToken ?? null;
+};

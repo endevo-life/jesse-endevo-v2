@@ -102,7 +102,7 @@ interface PromptPayload {
   user:   string;
 }
 
-function buildPrompt(payload: AssessmentPayload): PromptPayload {
+function buildPrompt(payload: AssessmentPayload, knowledgeContext?: string): PromptPayload {
   const { name, readiness_score, tier, jesse_signals, lowest_domain, domain_scores, completed_domains } = payload;
 
   const domainScoreLines = completed_domains
@@ -162,7 +162,7 @@ NOTE: One closing sentence of real encouragement.
 
 ---
 
-RULES:
+${knowledgeContext ? `---\n\nRELEVANT KNOWLEDGE BASE CONTEXT (use to enrich your advice):\n${knowledgeContext}\n\n---\n\n` : ''}RULES:
 Plain text only. No markdown. No #, **, __, >, or extra symbols.
 Each day header: "Day N: Title" on its own line.
 Each action: "- Bold Title | Description" using pipe separator.
@@ -177,7 +177,7 @@ Never name specific products, firms, or attorneys. Keep it actionable and warm.`
 }
 
 // ── Call Claude, fall back silently on any failure ────────────────────────────
-export async function generatePlan(payload: AssessmentPayload): Promise<PlanResult> {
+export async function generatePlan(payload: AssessmentPayload, knowledgeContext?: string): Promise<PlanResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const hasKey = apiKey && apiKey !== 'your_anthropic_api_key_here';
 
@@ -188,7 +188,7 @@ export async function generatePlan(payload: AssessmentPayload): Promise<PlanResu
 
   try {
     const client    = new Anthropic({ apiKey });
-    const { system, user } = buildPrompt(payload);
+    const { system, user } = buildPrompt(payload, knowledgeContext);
     const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS ?? '25000', 10);
     const model     = process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
 
