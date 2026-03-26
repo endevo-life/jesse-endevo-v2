@@ -395,11 +395,11 @@ Copy `.env.example` → `.env` and fill in values. Never commit `.env` files.
 
 | Role | Person |
 |------|--------|
-| Architect & DevOps | Nermeen |
-| Frontend (React) | Karna |
-| Backend (Node.js) | Aryan |
 | PM | Niki |
+| QA / PO | Brooke |
 
+| Architect & DevOps | FrontEnd | Nermeen|
+| Backend (Node.js)/ RAG/ AI | Aryan |
 ---
 
 ## Out of Scope (v2 MVP)
