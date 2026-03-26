@@ -12,9 +12,9 @@ import type { DomainSession } from '../types/index';
 // ── Table schema ───────────────────────────────────────────────────────────────
 // Table:  jesse-users
 // PK:     userId     (Firebase UID — String)
-// SK:     sk         (String — prefix pattern)
+// SK:     sessionId  (String — prefix pattern)
 //
-// SK values:
+// sessionId values:
 //   PROFILE                  — user profile row
 //   SESSION#<ISO timestamp>  — completed assessment session
 //   ASSESSMENT_PROGRESS      — in-progress assessment state across domains
@@ -58,7 +58,7 @@ export async function upsertUserMeta(meta: {
   const now = new Date().toISOString();
   await client.send(new UpdateCommand({
     TableName:                 TABLE,
-    Key:                       { userId: meta.userId, sk: 'PROFILE' },
+    Key:                       { userId: meta.userId, sessionId: 'PROFILE' },
     UpdateExpression:          'SET #name = :name, email = :email, photoURL = :photo, lastSeen = :now, createdAt = if_not_exists(createdAt, :now)',
     ExpressionAttributeNames:  { '#name': 'name' },
     ExpressionAttributeValues: {
@@ -82,22 +82,18 @@ export async function saveSession(session: DomainSession): Promise<void> {
   await client.send(new PutCommand({
     TableName: TABLE,
     Item: {
-      userId:     session.userId,
-      sk,
-      sessionId:  session.sessionId,
-      domainKey:  session.domainKey,
-      email:      session.email,
-      name:       session.displayName,
-      domains:    [session.domainKey],
-      domain_scores: { [session.domainKey]: session.pctScore },
-      readiness_score: session.pctScore,
-      tier:           session.tier,
-      critical_gaps:  session.criticalGaps,
-      aiPlan:         session.aiPlan,
-      answers:        session.answers,
-      lowest_domain:  session.domainKey,
-      completedAt:    session.completedAt,
-      updatedAt:      new Date().toISOString(),
+      userId:       session.userId,
+      sessionId:    sk,
+      domainKey:    session.domainKey,
+      email:        session.email,
+      displayName:  session.displayName,
+      pctScore:     session.pctScore,
+      tier:         session.tier,
+      criticalGaps: session.criticalGaps,
+      aiPlan:       session.aiPlan,
+      answers:      session.answers,
+      completedAt:  session.completedAt,
+      updatedAt:    new Date().toISOString(),
     },
   }));
   console.log(`[dynamo] saved SESSION#  userId=${session.userId}  domain=${session.domainKey}  score=${session.pctScore}%`);
@@ -109,12 +105,22 @@ export async function getUserSessions(userId: string): Promise<DomainSession[]> 
   if (!client) return [];
   const result = await client.send(new QueryCommand({
     TableName:                 TABLE,
-    KeyConditionExpression:    'userId = :uid AND begins_with(sk, :prefix)',
+    KeyConditionExpression:    'userId = :uid AND begins_with(#sid, :prefix)',
+    ExpressionAttributeNames:  { '#sid': 'sessionId' },
     ExpressionAttributeValues: { ':uid': userId, ':prefix': 'SESSION#' },
   }));
+  // Normalise field names (handle both old snake_case and new camelCase items)
+  const normalise = (item: Record<string, unknown>): DomainSession => ({
+    ...(item as unknown as DomainSession),
+    pctScore:     (item['pctScore'] ?? item['readiness_score'] ?? 0) as number,
+    criticalGaps: (item['criticalGaps'] ?? item['critical_gaps'] ?? []) as string[],
+    displayName:  (item['displayName'] ?? item['name'] ?? '') as string,
+  });
+
   // Return only the latest session per domain (last completed wins)
   const byDomain = new Map<string, DomainSession>();
-  for (const item of (result.Items ?? []) as DomainSession[]) {
+  for (const raw of (result.Items ?? [])) {
+    const item = normalise(raw as Record<string, unknown>);
     const existing = byDomain.get(item.domainKey);
     if (!existing || item.completedAt > existing.completedAt) {
       byDomain.set(item.domainKey, item);
@@ -139,7 +145,7 @@ export async function saveAssessmentProgress(
     TableName: TABLE,
     Item: {
       userId,
-      sk:               'ASSESSMENT_PROGRESS',
+      sessionId:        'ASSESSMENT_PROGRESS',
       completedDomains,
       domainScores,
       allAnswers,
@@ -158,7 +164,7 @@ export async function getAssessmentProgress(userId: string): Promise<Record<stri
   if (!client) return null;
   const result = await client.send(new GetCommand({
     TableName: TABLE,
-    Key:       { userId, sk: 'ASSESSMENT_PROGRESS' },
+    Key:       { userId, sessionId: 'ASSESSMENT_PROGRESS' },
   }));
   return result.Item ?? null;
 }
@@ -167,7 +173,7 @@ export async function getAssessmentProgress(userId: string): Promise<Record<stri
 export async function deleteSession(userId: string, sk: string): Promise<void> {
   const client = getClient();
   if (!client) return;
-  await client.send(new DeleteCommand({ TableName: TABLE, Key: { userId, sk } }));
+  await client.send(new DeleteCommand({ TableName: TABLE, Key: { userId, sessionId: sk } }));
   console.log(`[dynamo] deleted  userId=${userId}  sk=${sk}`);
 }
 
@@ -179,19 +185,20 @@ export async function deleteAllUserSessions(userId: string): Promise<void> {
   // Query all SESSION# rows first
   const result = await client.send(new QueryCommand({
     TableName:                 TABLE,
-    KeyConditionExpression:    'userId = :uid AND begins_with(sk, :prefix)',
+    KeyConditionExpression:    'userId = :uid AND begins_with(#sid, :prefix)',
+    ExpressionAttributeNames:  { '#sid': 'sessionId' },
     ExpressionAttributeValues: { ':uid': userId, ':prefix': 'SESSION#' },
-    ProjectionExpression:      'sk',
+    ProjectionExpression:      '#sid',
   })).catch(() => ({ Items: [] }));
 
   const sks = [
-    ...((result.Items ?? []).map((i: Record<string, unknown>) => i['sk'] as string)),
+    ...((result.Items ?? []).map((i: Record<string, unknown>) => i['sessionId'] as string)),
     'ASSESSMENT_PROGRESS',
   ];
 
   await Promise.all(
     sks.map(sk =>
-      client.send(new DeleteCommand({ TableName: TABLE, Key: { userId, sk } }))
+      client.send(new DeleteCommand({ TableName: TABLE, Key: { userId, sessionId: sk } }))
         .catch(() => {})
     )
   );

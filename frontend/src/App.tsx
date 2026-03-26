@@ -145,6 +145,7 @@ function App() {
       answer: finalAnswers[q.id]?.answer ?? "A",
     }));
 
+    let lastData: { success: boolean; pctScore: number; tier: string } | null = null;
     try {
       const res  = await fetch(API_ENDPOINTS.assessDomain, {
         method:  "POST",
@@ -159,6 +160,7 @@ function App() {
       });
       const data = await res.json();
       if (data.success) {
+        lastData = { success: true, pctScore: data.pctScore, tier: data.tier };
         const newSession: DomainProgress = {
           domainKey:    data.domainKey,
           pctScore:     data.pctScore,
@@ -176,7 +178,7 @@ function App() {
       console.warn("Domain assess failed:", err);
     }
 
-    setLastResult(data.success ? { pctScore: data.pctScore, tier: data.tier } : null);
+    setLastResult(lastData ? { pctScore: lastData.pctScore, tier: lastData.tier } : null);
     setScreen("domain-result");
   };
 
