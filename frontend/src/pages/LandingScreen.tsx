@@ -31,32 +31,33 @@ const LandingScreen: React.FC<LandingScreenProps> = ({ onStart }) => {
             <div className="jesse-avatar-wrap">
               <div className="jesse-avatar-glow" />
               <img src="/jesse.png" alt="Jesse" className="jesse-image" />
-              <div className="jesse-label">Jesse · Your Digital Guide</div>
+              <div className="jesse-label">Comprehensive Legacy Readiness Guide</div>
             </div>
 
             {/* Headline */}
             <h1 className="landing-headline">
               Find out if your<br />
-              <span className="headline-accent">digital life is ready</span>
-              <br />in 90 seconds.
+              <span className="headline-accent">legacy is protected</span>
+              <br />across 4 life domains.
             </h1>
 
             <p className="landing-sub">
-              Jesse will ask you 10 questions and build your personal{" "}
-              <strong>7-day Digital Readiness Plan</strong>, sent straight to your inbox.
+              Jesse will guide you through 40 questions across{" "}
+              <strong>Legal, Financial, Physical &amp; Digital</strong> readiness and
+              build your personalised action plan.
             </p>
 
             {/* Stats row */}
             <div className="landing-stats">
-              <div className="stat-pill">10 Questions</div>
+              <div className="stat-pill">40 Questions</div>
               <div className="stat-divider" />
-              <div className="stat-pill">90 Seconds</div>
+              <div className="stat-pill">4 Domains</div>
               <div className="stat-divider" />
               <div className="stat-pill">Free PDF Report</div>
             </div>
 
             <div className="jesse-intro">
-              <strong>Jesse:</strong> I'll guide you with quick, simple questions and build your personalized plan at the end.
+              <strong>Jesse:</strong> I'll walk you through each domain one at a time and build your personalised readiness plan at the end.
             </div>
           </div>
 
@@ -107,7 +108,7 @@ const LandingScreen: React.FC<LandingScreenProps> = ({ onStart }) => {
 
         <p className="landing-disclaimer">
           Not legal or financial advice. Free educational program.{" "}
-          <strong>We do not store your data.</strong>
+          <strong>Your results are stored securely to power your dashboard.</strong>
         </p>
       </div>
 

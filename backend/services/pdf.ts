@@ -115,6 +115,8 @@ async function fetchChartImage(domainScores: DomainScores): Promise<Buffer | nul
 function sanitize(text: string): string {
   return text
     .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^={2,}[^=\n]*={2,}\s*$/gm, '')
+    .replace(/^-{3,}\s*$/gm, '')
     .replace(/\*\*([^*\n]+)\*\*/g, '$1')
     .replace(/__([^_\n]+)__/g, '$1')
     .replace(/^[*]\s+/gm, '- ')
@@ -218,7 +220,7 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
 
   // Right side header labels
   const dateStr     = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  const reportLabel = 'End-of-Life Readiness Assessment';
+  const reportLabel = 'Comprehensive Legacy Readiness Guide';
   const dateLabel   = `${name}  ·  ${dateStr}`;
   p1.drawText(reportLabel, {
     x: W - margin - helveticaBold.widthOfTextAtSize(reportLabel, 10),
@@ -422,7 +424,7 @@ export async function generatePDF({ name, readiness_score, tier, domain_scores, 
   function addPlanPage(): PDFPage {
     const pg = pdfDoc.addPage([W, H]);
     drawRect(pg, 0, H - PLAN_HDR_H, W, PLAN_HDR_H, NAVY);
-    pg.drawText('Your End-of-Life Readiness Plan', {
+    pg.drawText('Your Comprehensive Legacy Readiness Plan', {
       x: margin, y: H - 40, font: helveticaBold, size: 17, color: WHITE,
     });
     pg.drawText(`Prepared for ${name}  ·  ${tier}`, {
