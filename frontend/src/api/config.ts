@@ -10,4 +10,6 @@ export const API_ENDPOINTS = {
   user:         (uid: string) => `${API_BASE_URL}/api/user/${uid}`,
   userMeta:     (uid: string) => `${API_BASE_URL}/api/user/${uid}/meta`,
   userReset:    (uid: string) => `${API_BASE_URL}/api/user/${uid}/reset`,
+  chat:         `${API_BASE_URL}/api/chat`,
+  chatHistory:  (uid: string) => `${API_BASE_URL}/api/chat/${uid}`,
 };

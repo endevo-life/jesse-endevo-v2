@@ -32,3 +32,6 @@ build/
 
 # OS
 Thumbs.db
+
+# Knowledge base zip files (large binary — ingest locally via scripts/ingest-pdfs.ts)
+*.zip
