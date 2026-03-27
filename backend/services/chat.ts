@@ -53,9 +53,8 @@ export async function processChat(
   saveChatMessageDynamo(userId, 'user', message).catch(() => {});
 
   // 2. Assessment context from DynamoDB
-  const sessions     = await getUserSessions(userId).catch(() => []);
-  const hasAssessment = sessions.length > 0;
-  const assessmentContext = hasAssessment
+  const sessions = await getUserSessions(userId).catch(() => []);
+  const assessmentContext = sessions.length > 0
     ? sessions.map(s =>
         `${s.domainKey.toUpperCase()}: ${s.pctScore}% (${s.tier})\nGaps: ${
           (s.criticalGaps ?? []).join(', ') || 'none'
@@ -84,7 +83,8 @@ export async function processChat(
   const history = await getChatHistory(userId);
 
   // 5. Build Claude messages (history + new user message)
-  const systemPrompt = buildSystemPrompt(assessmentContext, knowledgeContext, hasAssessment);
+  const completedDomains = sessions.map(s => s.domainKey);
+  const systemPrompt = buildSystemPrompt(assessmentContext, knowledgeContext, completedDomains);
   const messages: { role: 'user' | 'assistant'; content: string }[] = [
     ...history.map(h => ({ role: h.role, content: h.content })),
     { role: 'user', content: message },
@@ -106,28 +106,46 @@ export async function processChat(
 function buildSystemPrompt(
   assessmentContext: string,
   knowledgeContext:  string,
-  hasAssessment:     boolean,
+  completedDomains:  string[],
 ): string {
+  const ALL_DOMAINS = ['legal', 'financial', 'physical', 'digital'];
+  const missingDomains = ALL_DOMAINS.filter(d => !completedDomains.includes(d));
+
   let prompt =
     'You are Jesse, an AI life readiness coach from ENDevo. ' +
-    'You help users improve their life readiness across four domains: ' +
-    'Legal, Financial, Physical, and Digital. ' +
-    'Be warm, encouraging, concise, and practical. ' +
-    'Focus on actionable, specific advice. ' +
-    'Keep answers under 200 words unless the user asks for detail.';
+    'You help users understand their life readiness across four domains: Legal, Financial, Physical, and Digital.\n\n' +
+
+    '## CRITICAL RULES — follow these without exception:\n' +
+    '1. You are STRICTLY an educational resource. You do NOT provide legal, financial, medical, or any other professional advice — ever. Not even implicitly.\n' +
+    '2. On any topic that touches law, finance, health, or estate planning, you MUST include a disclaimer such as: "Disclaimer: I\'m an educational AI, not a licensed professional. Please consult a qualified [lawyer/financial advisor/doctor] for advice specific to your situation."\n' +
+    '3. You may share your perspective or opinion, but you MUST clearly label it as your opinion (e.g. "In my opinion…" or "My take is…") and follow it with a reminder to seek a relevant professional.\n' +
+    '4. Be warm, encouraging, and concise. Keep answers under 200 words unless the user asks for more detail.\n' +
+    '5. Never claim certainty on legal, financial, or medical outcomes — these vary by jurisdiction, personal situation, and professional judgement.';
 
   if (knowledgeContext) {
     prompt += `\n\n--- ENDevo Knowledge Base ---\n${knowledgeContext}`;
   }
 
-  if (hasAssessment && assessmentContext) {
+  if (assessmentContext) {
     prompt +=
-      `\n\n--- User\'s POMA Assessment Results ---\n${assessmentContext}\n` +
-      'Use these results to personalise your guidance.';
-  } else {
+      '\n\n--- User\'s Peace of Mind Assessment (POMA) Results ---\n' +
+      assessmentContext + '\n' +
+      'Use these results to personalise your educational guidance.';
+  }
+
+  if (missingDomains.length > 0) {
+    const formatted = missingDomains.map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(', ');
     prompt +=
-      '\n\nThis user has not yet completed their POMA assessment. ' +
-      'Gently encourage them to complete it so you can give personalised guidance.';
+      `\n\n--- Missing POMA Domains ---\n` +
+      `The user has not yet completed the following domain(s) of the Peace of Mind Assessment (POMA): ${formatted}. ` +
+      'Whenever relevant, softly encourage them to complete these assessments so you can give them a fuller, more personalised picture. ' +
+      'Do not pressure them — just weave it in naturally.';
+  }
+
+  if (!assessmentContext && missingDomains.length === ALL_DOMAINS.length) {
+    prompt +=
+      '\n\nThis user has not started their Peace of Mind Assessment (POMA) yet. ' +
+      'Gently encourage them to take it — it covers Legal, Financial, Physical, and Digital readiness and only takes a few minutes per domain.';
   }
 
   return prompt;
