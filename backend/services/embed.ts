@@ -3,8 +3,7 @@ import {
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime';
 
-const REGION      = process.env.AWS_REGION        || 'us-east-1';
-const EMBED_MODEL = process.env.BEDROCK_EMBED_MODEL || 'amazon.titan-embed-text-v1'; // 1536 dims
+const REGION = process.env.AWS_REGION || 'us-east-1';
 
 let _client: BedrockRuntimeClient | null = null;
 
@@ -37,14 +36,12 @@ export async function embedText(text: string): Promise<number[] | null> {
   }
 
   try {
-    // Titan V2 body — dimensions + normalize are V2-only fields; V1 ignores them
+    const embedModel = process.env.BEDROCK_EMBED_MODEL || 'amazon.titan-embed-text-v2:0';
     const body = JSON.stringify({
-      inputText:  text.slice(0, 8192),
-      dimensions: 1024,
-      normalize:  true,
+      inputText: text.slice(0, 8192),
     });
     const response = await client.send(new InvokeModelCommand({
-      modelId:     EMBED_MODEL,
+      modelId:     embedModel,
       body:        Buffer.from(body),
       contentType: 'application/json',
       accept:      'application/json',
@@ -53,6 +50,7 @@ export async function embedText(text: string): Promise<number[] | null> {
     const result = JSON.parse(Buffer.from(response.body).toString()) as {
       embedding: number[];
     };
+    console.log(`[embed] model=${embedModel} dims=${result.embedding.length}`);
     return result.embedding;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

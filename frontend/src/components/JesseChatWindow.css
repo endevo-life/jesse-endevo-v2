@@ -233,6 +233,18 @@
   30%            { transform: translateY(-5px); opacity: 1; }
 }
 
+/* ── Bullet lines ─────────────────────────────────────────────────────────── */
+.jcw-bullet {
+  padding-left: 0.9rem;
+  position: relative;
+}
+.jcw-bullet::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: rgba(249, 115, 22, 0.8);
+}
+
 /* ── Input row ────────────────────────────────────────────────────────────── */
 .jcw-input-row {
   display: flex;

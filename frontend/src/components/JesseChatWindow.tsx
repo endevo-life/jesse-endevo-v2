@@ -78,8 +78,17 @@ const JesseChatWindow: React.FC<Props> = ({ userId, displayName }) => {
         body:    JSON.stringify({ userId, message: text }),
       });
       const data = await res.json();
-      if (data.success && Array.isArray(data.history)) {
+      if (data.success && Array.isArray(data.history) && data.history.length > 0) {
         setMessages(data.history);
+      } else if (data.success && data.reply) {
+        // Aurora unavailable — keep optimistic user msg and append the reply
+        const assistantMsg: ChatMessage = {
+          id:         `reply-${Date.now()}`,
+          role:       "assistant",
+          content:    data.reply,
+          created_at: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, assistantMsg]);
       }
     } catch {
       const errMsg: ChatMessage = {
@@ -100,6 +109,30 @@ const JesseChatWindow: React.FC<Props> = ({ userId, displayName }) => {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  // ── Markdown-lite renderer ─────────────────────────────────────────────────
+  const renderLine = (line: string, key: number) => {
+    if (!line.trim()) return <br key={key} />;
+
+    // Parse inline **bold** and *italic*
+    const parts: React.ReactNode[] = [];
+    const regex = /(\*\*(.+?)\*\*|\*(.+?)\*)/g;
+    let last = 0, m: RegExpExecArray | null;
+    while ((m = regex.exec(line)) !== null) {
+      if (m.index > last) parts.push(line.slice(last, m.index));
+      if (m[2]) parts.push(<strong key={m.index}>{m[2]}</strong>);
+      else if (m[3]) parts.push(<em key={m.index}>{m[3]}</em>);
+      last = m.index + m[0].length;
+    }
+    if (last < line.length) parts.push(line.slice(last));
+
+    const isBullet = /^[-•*]\s/.test(line.trim());
+    if (isBullet) {
+      const content = parts.length ? parts : [line.trim().slice(2)];
+      return <div key={key} className="jcw-bullet">{content}</div>;
+    }
+    return <div key={key}>{parts.length ? parts : line}</div>;
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -146,9 +179,7 @@ const JesseChatWindow: React.FC<Props> = ({ userId, displayName }) => {
                 <img src="/jesse.png" alt="Jesse" className="jcw-msg-avatar" />
               )}
               <div className="jcw-msg-bubble">
-                {msg.content.split("\n").map((line, i) => (
-                  <span key={i}>{line}{i < msg.content.split("\n").length - 1 && <br />}</span>
-                ))}
+                {msg.content.split("\n").map((line, i) => renderLine(line, i))}
               </div>
             </div>
           ))}
