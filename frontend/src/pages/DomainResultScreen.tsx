@@ -16,7 +16,6 @@ const TIER_MSG: Record<string, string> = {
   "Starting Fresh":  "This is your starting point — and that's perfectly okay.",
 };
 
-const REMAINING_DOMAINS: DomainKey[] = ["legal", "financial", "physical", "digital"];
 
 interface DomainResultScreenProps {
   domainKey:  DomainKey;

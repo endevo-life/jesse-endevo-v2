@@ -301,8 +301,7 @@ app.post('/api/report/pdf', asyncHandler(async (req: Request, res: Response) => 
   for (const s of sessions) {
     domain_scores[s.domainKey] = s.pctScore;
     totalPct += s.pctScore;
-    const domainLabel = s.domainKey.charAt(0).toUpperCase() + s.domainKey.slice(1) + ' Readiness';
-    planParts.push(`=== ${domainLabel} ===\n${s.aiPlan}`);
+    planParts.push(s.aiPlan);
   }
 
   const readiness_score = Math.round(totalPct / sessions.length);

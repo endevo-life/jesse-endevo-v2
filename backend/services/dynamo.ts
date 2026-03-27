@@ -14,7 +14,7 @@ import type { DomainSession, DomainKey, Answer } from '../types/index';
 // PK:     userId     (Firebase UID — String)
 // SK:     sessionId  (String — prefix pattern)
 //
-// SK values:
+// sessionId values:
 //   PROFILE                  — user profile row
 //   SESSION#<ISO timestamp>  — completed assessment session
 //   ASSESSMENT_PROGRESS      — in-progress assessment state across domains

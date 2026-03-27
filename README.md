@@ -7,13 +7,13 @@
 
 ## What is Jesse v2?
 
-Jesse is a full-stack AI-powered life readiness platform. Users sign in with Google, choose from 4 life domains, complete a 10-question assessment per domain, and receive a personalized scored action plan via email. Throughout the entire journey, a RAG-powered Jesse AI agent is available to answer questions in warm, plain language. All data is stored and tied to the user's account so they can return, resume, and track progress over time.
+Jesse is a full-stack AI-powered life readiness platform. Users sign in with Google, choose from 4 life domains, complete a 10-question assessment per domain, and receive a personalized scored action plan. Results are stored to their account so they can return, see past scores, and track progress over time.
 
 ---
 
 ## The 4 Life Readiness Domains
 
-Users choose which domain to assess. Each domain has 10 questions. Domains can be taken individually or all together.
+Each domain has 10 questions. Domains can be taken individually or all together.
 
 ---
 
@@ -76,316 +76,212 @@ Users choose which domain to assess. Each domain has 10 questions. Domains can b
 ## User Journey
 
 ```
-Google Sign-In
+Google Sign-In (Firebase Auth)
       │
       ▼
 Dashboard — choose a domain (Digital / Legal / Financial / Physical)
+  (completed domains shown with score badge)
       │
       ▼
 10 Questions (auto-advance, ABCD, progress bar)
-  ← RAG Jesse Agent available at any question →
       │
       ▼
-Backend: Score → AI Plan → PDF → Email
+POST /api/assess/domain
+  Score → RAG context (Bedrock KB if configured) → Claude AI Plan
+  → Session saved to DynamoDB → 200 returned to frontend
       │
       ▼
-Results stored to database (tied to user account)
+Domain Result screen — score, tier, AI plan displayed
       │
       ▼
-Confirmation screen — plan on its way!
-  ← RAG Jesse Agent available for follow-up questions →
+Download Full Report (PDF — all completed domains combined)
       │
       ▼
-Sign Out (session cleared, data persisted in DB for next visit)
+Sign Out (session cleared, data persisted in DynamoDB for next visit)
 ```
 
 ---
 
-## Authentication — Google OAuth
+## Authentication — Firebase Google OAuth
 
 | Feature | Detail |
 |---------|--------|
 | Provider | Google OAuth 2.0 |
-| Library | Supabase Auth (built-in Google provider) |
-| What is stored | UID, name, email, profile photo, created_at |
-| Session | JWT token, httpOnly cookie |
-| Sign out | Clears session — data remains in DB for next visit |
+| Library | Firebase Auth SDK |
+| What is stored | Firebase UID, name, email, profile photo  |
+| Session | Firebase ID token (client-managed) |
+| Sign out | Clears local session — all domain data persists in DynamoDB |
 | No passwords | Google handles all credential management |
 
-Users are recognized on return visits. Past domain scores load into their dashboard automatically.
-
----
-
-## RAG Agent — Jesse AI at Every Step
-
-The RAG (Retrieval-Augmented Generation) agent gives users personalized, contextual answers throughout the assessment — not generic chatbot responses.
-
-### How RAG Works
-
-```
-User asks a question at Q4 of Legal domain
-          │
-          ▼
-Question embedded → vector search on knowledge base
-          │
-          ▼
-Retrieve relevant chunks:
-  - ENDevo educational content
-  - Domain-specific guidance
-  - User's current answers + partial score
-          │
-          ▼
-Inject into Claude prompt → Jesse responds
-  Warm, plain, non-legal, non-clinical language
-```
-
-### Knowledge Base Contents
-
-| Source | Content |
-|--------|---------|
-| ENDevo guides | Domain explanations, action steps, examples |
-| FAQ library | Common questions per domain |
-| Glossary | Plain-English definitions (no jargon) |
-| User context | Their answers so far, their score, their tier |
-
-### RAG Available At
-- Every quiz question screen (floating Jesse button)
-- Loading screen ("What will my score mean?")
-- Confirmation screen ("What should I do first?")
-- Dashboard (cross-domain questions)
+Users are recognized on return visits. Past domain scores and tiers load into the dashboard automatically via `GET /api/user/:uid`.
 
 ---
 
 ## Scoring & AI Pipeline
 
 ```
-Answers array (10 per domain)
+Answers array (up to 15 per domain)
         │
         ▼
 Scoring Engine (pure algorithm — no AI)
   A = 10pts | B = 6pts | C = 3pts | D = 0pts
-  Domain weights applied → Total score 0–100 → Tier assigned
+  Domain weights applied → score 0–100 → tier assigned
         │
         ▼
-Calculated payload:
-  { name, email, domain, score, tier, domain_scores, gaps, signals }
+Payload: { name, email, domain, score, tier, domain_scores, critical_gaps, jesse_signals }
         │
         ▼
-Claude AI → 7-day personalized action plan
-  (Fallback: static tier plan if API fails — demo never breaks)
+(Optional) AWS Bedrock Knowledge Base query
+  → retrieve relevant ENDevo content chunks for this domain + gap profile
         │
         ▼
-PDF generated (pdf-lib)
-  Page 1: Score profile, donut chart, tier badge
-  Page 2: 7-day action plan
+Anthropic Claude (claude-haiku-4-5 default) → 7-day personalized action plan
+  Fallback: static tier plan if API key missing — demo never breaks
         │
         ▼
-Email sent via Resend (PDF attached)
+Session saved to DynamoDB (jesse-users table)
+  PK: userId (Firebase UID) | SK: SESSION#<ISO timestamp>
         │
         ▼
-Results written to database (score, tier, plan, timestamp — linked to user UID)
+200 → frontend renders Domain Result screen
 ```
+
+---
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/assess` | Legacy full-assessment (all domains in one request) |
+| `POST` | `/api/assess/domain` | Single-domain assessment — scores, generates plan, saves to DB |
+| `POST` | `/api/report/pdf` | Generate combined PDF report for all completed domains |
+| `GET`  | `/api/user/:uid` | Fetch all domain sessions for a user (dashboard load) |
+| `PUT`  | `/api/user/:uid/meta` | Upsert user profile on sign-in |
+| `DELETE` | `/api/user/:uid/reset` | Wipe all domain sessions for a user |
+| `GET`  | `/api/health` | Service health + env check |
 
 ---
 
 ## Tech Stack
 
-| Layer | Choice | Why |
-|-------|--------|-----|
-| Frontend | React + Vite + TypeScript | Fast, type-safe, same as v1 |
-| Styling | Tailwind CSS | Mobile-first, utility classes |
-| Auth | Google OAuth via Supabase Auth | Zero credential management |
-| Backend | Node.js + Express | Lightweight, proven in v1 |
-| AI — Plan Generation | Anthropic Claude API (claude-haiku-4-5) | Fast, cheap, high quality |
-| AI — RAG Agent | Anthropic Claude API + pgvector | Contextual, personalized answers |
-| Vector Store | Supabase pgvector | Free tier, no extra service needed |
-| Database | Supabase (PostgreSQL) — 500MB free | Auth + DB + vector in one service |
-| PDF Generation | pdf-lib | Lightweight, server-side |
-| Email | Resend API | Reliable, simple, free tier |
-| File Storage | AWS S3 | PDF storage, scalable |
-| CDN + Hosting | AWS CloudFront + S3 | Global CDN, fast loads |
-| Backend Hosting | Railway or AWS Elastic Beanstalk | Scalable Node.js |
+| Layer | Choice |
+|-------|--------|
+| Frontend | React 18 + Vite + TypeScript |
+| Auth | Firebase Auth — Google OAuth 2.0 |
+| Backend | Node.js + Express (TypeScript) |
+| AI — Plan Generation | Anthropic Claude API (`claude-haiku-4-5` default) |
+| AI — RAG (optional) | AWS Bedrock Knowledge Base |
+| Database | AWS DynamoDB (`jesse-users` table) |
+| PDF Generation | pdf-lib |
+| Email | Resend API |
+| File Storage | AWS S3 (optional — PDF storage) |
+| Hosting — Frontend | Vercel (Vite — `frontend/`) |
+| Hosting — Backend | Vercel Serverless (Express — `backend/`) |
 
 ---
 
-## Database Schema (Supabase / PostgreSQL)
+## DynamoDB Schema
 
-```sql
--- Users (auto-populated from Google OAuth)
-users
-  id          uuid PRIMARY KEY
-  email       text UNIQUE
-  name        text
-  avatar_url  text
-  created_at  timestamp
+**Table:** `jesse-users` | **Region:** `us-east-2` (default)
 
--- Assessments (one row per domain per attempt)
-assessments
-  id            uuid PRIMARY KEY
-  user_id       uuid REFERENCES users(id)
-  domain        text  -- 'digital' | 'legal' | 'financial' | 'physical'
-  score         integer
-  tier          text
-  domain_scores jsonb
-  critical_gaps jsonb
-  signals       jsonb
-  plan_text     text
-  pdf_s3_url    text
-  email_sent    boolean
-  created_at    timestamp
+| PK (`userId`) | SK (`sessionId`) | Description |
+|---------------|-----------------|-------------|
+| Firebase UID | `PROFILE` | User profile row (email, displayName, photoURL) |
+| Firebase UID | `SESSION#<ISO>` | Completed domain assessment session |
+| Firebase UID | `ASSESSMENT_PROGRESS` | In-progress assessment state |
 
--- RAG knowledge base chunks
-knowledge_chunks
-  id          uuid PRIMARY KEY
-  domain      text
-  content     text
-  embedding   vector(1536)
-  source      text
-```
+**Session row fields:** `userId`, `domainKey`, `email`, `displayName`, `answers[]`, `pctScore`, `tier`, `aiPlan`, `criticalGaps[]`, `completedAt`
 
 ---
 
-## Cost Estimates
+## Deployment — Vercel
 
-### Anthropic Claude API (Direct)
+Two separate Vercel projects from the same repo:
 
-| Model | Input | Output | Per Assessment* | Per RAG Query |
-|-------|-------|--------|----------------|---------------|
-| claude-haiku-4-5 | $0.80/MTok | $4.00/MTok | ~$0.01 | ~$0.003 |
-| claude-sonnet-4-6 | $3.00/MTok | $15.00/MTok | ~$0.04 | ~$0.012 |
+### Backend (`backend/`)
 
-\* Per assessment = ~3,000 input tokens + 2,000 output tokens (7-day plan)
-\* Per RAG query = ~1,500 input tokens + 400 output tokens
+- Root directory: `backend`
+- Build command: `npm run vercel-build` (`tsc`)
+- `vercel.json` already configured — routes all traffic to `server.ts`
 
-**Cost per user completing all 4 domains + 10 RAG queries:**
+### Frontend (`frontend/`)
 
-| Model | 4 Assessments | 10 RAG queries | Total per user |
-|-------|--------------|----------------|----------------|
-| Haiku | ~$0.04 | ~$0.03 | **~$0.07/user** |
-| Sonnet | ~$0.16 | ~$0.12 | **~$0.28/user** |
-
-**Monthly projection (Haiku):**
-
-| Users/month | AI cost |
-|-------------|---------|
-| 100 | ~$7 |
-| 500 | ~$35 |
-| 1,000 | ~$70 |
-| 10,000 | ~$700 |
-
----
-
-### AWS Bedrock (Alternative AI Provider)
-
-AWS Bedrock hosts Claude models within the AWS ecosystem.
-
-| Model on Bedrock | Input | Output |
-|-----------------|-------|--------|
-| Claude 3 Haiku | $0.25/MTok | $1.25/MTok |
-| Claude 3.5 Haiku | $0.80/MTok | $4.00/MTok |
-| Claude 3.5 Sonnet | $3.00/MTok | $15.00/MTok |
-
-**Bedrock RAG (Knowledge Base service):**
-
-| Service | Cost | Note |
-|---------|------|------|
-| Retrieval queries | $0.10 / 1,000 queries | |
-| Titan Embeddings | $0.02 / 1M tokens | |
-| OpenSearch Serverless | ~$700/month minimum | **Not recommended for MVP** |
-
-> **Recommendation:** Use Supabase pgvector for RAG at MVP scale. Avoid Bedrock Knowledge Base until you exceed 10,000 users — the OpenSearch minimum cost ($700/mo) makes it expensive early. Switch to Bedrock when you need AWS-native compliance or enterprise scale.
-
-**Cost per user comparison:**
-
-| Option | Cost per user |
-|--------|--------------|
-| Direct Anthropic Haiku | ~$0.07 |
-| Bedrock Claude 3 Haiku | ~$0.03 |
-| Bedrock + Knowledge Base (managed RAG) | ~$0.10 + $700/mo fixed |
-
----
-
-### AWS S3 + CloudFront
-
-#### S3 (PDF + frontend assets)
-
-| Resource | Cost |
-|----------|------|
-| Storage | $0.023 per GB/month |
-| PUT requests | $0.005 per 1,000 |
-| GET requests | $0.0004 per 1,000 |
-| 1,000 PDFs at 500KB each | ~$0.012/month |
-
-#### CloudFront (CDN)
-
-| Resource | Cost |
-|----------|------|
-| Data transfer (US/EU) | $0.0085–$0.012 per GB |
-| HTTPS requests | $0.01 per 10,000 |
-| 1,000 users (~5MB React app) | ~$0.05/month |
-| 10,000 users | ~$0.50/month |
-
-**Free Tier (first 12 months):** S3: 5GB storage + 20K GET requests free. CloudFront: 1TB transfer + 10M requests free. **At MVP scale this is effectively $0.**
-
----
-
-### Total Monthly Cost Summary
-
-| Scale | Anthropic Haiku | Supabase | S3 + CloudFront | Resend | **Total** |
-|-------|----------------|----------|-----------------|--------|-----------|
-| MVP (100 users) | $7 | Free | Free | Free | **~$7/mo** |
-| Growth (1,000 users) | $70 | Free (500MB) | ~$2 | ~$5 | **~$77/mo** |
-| Scale (10,000 users) | $700 | $25 (Pro) | ~$15 | ~$20 | **~$760/mo** |
+- Root directory: `frontend`
+- Framework: Vite (auto-detected)
+- `vercel.json` already configured — SPA rewrites to `index.html`
 
 ---
 
 ## Environment Variables
 
+### Backend (Vercel project)
+
 ```env
-# Google OAuth
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-
-# Supabase
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-
-# Anthropic
+# Required
 ANTHROPIC_API_KEY=
-
-# Resend
 RESEND_API_KEY=
+GHL_API_KEY=
 
-# AWS
+# AWS DynamoDB (optional — sessions disabled without this)
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
-AWS_REGION=us-east-1
+AWS_REGION=us-east-2
+DYNAMO_TABLE=jesse-users
+
+# AWS Bedrock RAG (optional — AI plans work without it)
+BEDROCK_KNOWLEDGE_BASE_ID=
+BEDROCK_MODEL_ARN=
+
+# AWS S3 (optional — PDF downloads still work without it)
 S3_BUCKET_NAME=
 
-# App
-VITE_API_URL=
-FRONTEND_URL=
+# CORS — add your frontend Vercel URL
+FRONTEND_URLS=https://your-frontend.vercel.app
+```
+
+### Frontend (Vercel project)
+
+```env
+VITE_API_URL=https://your-backend.vercel.app
+
+# Firebase Auth
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
 ```
 
 ---
 
-## Getting Started
+## Getting Started (Local Dev)
 
 ```bash
-# Frontend
-cd frontend && npm install && npm run dev
-
 # Backend
-cd backend && npm install && npm run dev
+cd backend
+cp .env.example .env    # fill in keys
+npm install
+npm run dev             # http://localhost:5000
+
+# Frontend (new terminal)
+cd frontend
+cp .env.example .env.local    # set VITE_API_URL + Firebase vars
+npm install
+npm run dev             # http://localhost:5173
 ```
 
-Copy `.env.example` → `.env` and fill in values. Never commit `.env` files.
+### Firebase setup
+1. Create project at [console.firebase.google.com](https://console.firebase.google.com)
+2. Enable **Authentication → Google** sign-in provider
+3. Add your Vercel frontend URL to **Authorized domains**
+4. Copy the config into `frontend/.env.local` (6 `VITE_FIREBASE_*` vars)
 
 ---
 
 ## Branch Rules
 
-- `main` → production (protected, PR + approval required)
+- `main` → production (Vercel auto-deploys on push)
 - `dev` → integration (merge here first)
 - `feature/your-task` → your work
 
@@ -395,10 +291,10 @@ Copy `.env.example` → `.env` and fill in values. Never commit `.env` files.
 
 | Role | Person |
 |------|--------|
-| Architect & DevOps | Nermeen |
-| Frontend (React) | Karna |
-| Backend (Node.js) | Aryan |
 | PM | Niki |
+| QA / PO | Brooke |
+| Architect, DevOps & Frontend | Nermeen |
+| Backend, RAG & AI | Aryan |
 
 ---
 
