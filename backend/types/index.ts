@@ -62,19 +62,20 @@ export interface PDFGenerationParams {
 // ── User / Dashboard ──────────────────────────────────────────────────────────
 
 export interface DomainSession {
-  userId:       string;
-  domainKey:    DomainKey;
-  sessionId:    string;   // = domainKey (SK in DynamoDB)
-  email:        string;
-  displayName:  string;
-  answers:      Answer[];
-  pctScore:     number;
-  tier:         string;
-  aiPlan:       string;
-  criticalGaps: string[];
-  pdfS3Key?:    string;   // set after PDF is generated + uploaded to S3
-  completedAt:  string;
-  updatedAt?:   string;
+  userId:        string;
+  domainKey:     DomainKey;
+  sessionId:     string;   // = domainKey (SK in DynamoDB)
+  email:         string;
+  displayName:   string;
+  answers:       Answer[];
+  pctScore:      number;
+  tier:          string;
+  aiPlan:        string;
+  criticalGaps:  string[];
+  jesseSignals:  string[];
+  pdfS3Key?:     string;   // set after PDF is generated + uploaded to S3
+  completedAt:   string;
+  updatedAt?:    string;
 }
 
 export interface DomainAssessBody {

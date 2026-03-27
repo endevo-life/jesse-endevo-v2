@@ -7,7 +7,7 @@ import {
   UpdateCommand,
   DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
-import type { DomainSession } from '../types/index';
+import type { DomainSession, DomainKey, Answer } from '../types/index';
 
 // ── Table schema ───────────────────────────────────────────────────────────────
 // Table:  jesse-users
@@ -18,7 +18,7 @@ import type { DomainSession } from '../types/index';
 //   PROFILE                  — user profile row
 //   SESSION#<ISO timestamp>  — completed assessment session
 //   ASSESSMENT_PROGRESS      — in-progress assessment state across domains
-//   CHAT#<ISO timestamp>     — chat message (future)
+//   CHAT#<ISO timestamp>     — chat message
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TABLE  = process.env.DYNAMO_TABLE || 'jesse-users';
@@ -78,22 +78,26 @@ export async function saveSession(session: DomainSession): Promise<void> {
     console.warn('[dynamo] skipped — AWS credentials not configured');
     return;
   }
-  const sk  = `SESSION#${session.completedAt}`;
+  const sessionId = `SESSION#${session.completedAt}`;
   await client.send(new PutCommand({
     TableName: TABLE,
     Item: {
-      userId:       session.userId,
-      sessionId:    sk,
-      domainKey:    session.domainKey,
-      email:        session.email,
-      displayName:  session.displayName,
-      pctScore:     session.pctScore,
-      tier:         session.tier,
-      criticalGaps: session.criticalGaps,
-      aiPlan:       session.aiPlan,
-      answers:      session.answers,
-      completedAt:  session.completedAt,
-      updatedAt:    new Date().toISOString(),
+      userId:     session.userId,
+      sessionId,
+      domainKey:  session.domainKey,
+      email:      session.email,
+      name:       session.displayName,
+      domains:    [session.domainKey],
+      domain_scores: { [session.domainKey]: session.pctScore },
+      readiness_score: session.pctScore,
+      tier:           session.tier,
+      critical_gaps:  session.criticalGaps,
+      jesse_signals:  session.jesseSignals,
+      aiPlan:         session.aiPlan,
+      answers:        session.answers,
+      lowest_domain:  session.domainKey,
+      completedAt:    session.completedAt,
+      updatedAt:      new Date().toISOString(),
     },
   }));
   console.log(`[dynamo] saved SESSION#  userId=${session.userId}  domain=${session.domainKey}  score=${session.pctScore}%`);
@@ -105,25 +109,35 @@ export async function getUserSessions(userId: string): Promise<DomainSession[]> 
   if (!client) return [];
   const result = await client.send(new QueryCommand({
     TableName:                 TABLE,
-    KeyConditionExpression:    'userId = :uid AND begins_with(#sid, :prefix)',
-    ExpressionAttributeNames:  { '#sid': 'sessionId' },
+    KeyConditionExpression:    'userId = :uid AND begins_with(sessionId, :prefix)',
     ExpressionAttributeValues: { ':uid': userId, ':prefix': 'SESSION#' },
   }));
-  // Normalise field names (handle both old snake_case and new camelCase items)
-  const normalise = (item: Record<string, unknown>): DomainSession => ({
-    ...(item as unknown as DomainSession),
-    pctScore:     (item['pctScore'] ?? item['readiness_score'] ?? 0) as number,
-    criticalGaps: (item['criticalGaps'] ?? item['critical_gaps'] ?? []) as string[],
-    displayName:  (item['displayName'] ?? item['name'] ?? '') as string,
-  });
 
-  // Return only the latest session per domain (last completed wins)
+  // Normalise raw DynamoDB items to DomainSession shape.
+  function normalise(item: Record<string, unknown>): DomainSession {
+    return {
+      userId:       (item['userId']      ?? userId)  as string,
+      domainKey:    item['domainKey']                as DomainKey,
+      sessionId:    (item['sessionId']   ?? '')      as string,
+      email:        (item['email']       ?? '')      as string,
+      displayName:  (item['name']        ?? '')      as string,
+      answers:      (item['answers']     ?? [])      as Answer[],
+      pctScore:     (item['pctScore']    ?? item['readiness_score'] ?? 0) as number,
+      tier:         (item['tier']        ?? '')      as string,
+      aiPlan:       (item['aiPlan']      ?? '')      as string,
+      criticalGaps: (item['criticalGaps']  ?? item['critical_gaps']  ?? []) as string[],
+      jesseSignals: (item['jesseSignals']  ?? item['jesse_signals']  ?? []) as string[],
+      pdfS3Key:     item['pdfS3Key']                as string | undefined,
+      completedAt:  (item['completedAt'] ?? '')      as string,
+    };
+  }
+
   const byDomain = new Map<string, DomainSession>();
-  for (const raw of (result.Items ?? [])) {
-    const item = normalise(raw as Record<string, unknown>);
-    const existing = byDomain.get(item.domainKey);
-    if (!existing || item.completedAt > existing.completedAt) {
-      byDomain.set(item.domainKey, item);
+  for (const raw of (result.Items ?? []) as Record<string, unknown>[]) {
+    const session  = normalise(raw);
+    const existing = byDomain.get(session.domainKey);
+    if (!existing || session.completedAt > existing.completedAt) {
+      byDomain.set(session.domainKey, session);
     }
   }
   return Array.from(byDomain.values());
@@ -170,11 +184,53 @@ export async function getAssessmentProgress(userId: string): Promise<Record<stri
 }
 
 // ── Delete a specific domain session ─────────────────────────────────────────
-export async function deleteSession(userId: string, sk: string): Promise<void> {
+export async function deleteSession(userId: string, sessionId: string): Promise<void> {
   const client = getClient();
   if (!client) return;
-  await client.send(new DeleteCommand({ TableName: TABLE, Key: { userId, sessionId: sk } }));
-  console.log(`[dynamo] deleted  userId=${userId}  sk=${sk}`);
+  await client.send(new DeleteCommand({ TableName: TABLE, Key: { userId, sessionId } }));
+  console.log(`[dynamo] deleted  userId=${userId}  sessionId=${sessionId}`);
+}
+
+// ── Save chat message (CHAT#<ISO> row) — keep only last 10 ───────────────────
+const MAX_CHAT_MESSAGES = 10;
+
+export async function saveChatMessageDynamo(
+  userId:  string,
+  role:    'user' | 'assistant',
+  content: string,
+): Promise<void> {
+  const client = getClient();
+  if (!client) return;
+
+  const now = new Date().toISOString();
+
+  await client.send(new PutCommand({
+    TableName: TABLE,
+    Item: { userId, sessionId: `CHAT#${now}`, role, content, createdAt: now },
+  })).catch(e => console.warn('[dynamo] saveChatMessage put failed:', e?.message));
+
+  // Query all CHAT# rows for this user (sessionId only — cheap)
+  const existing = await client.send(new QueryCommand({
+    TableName:                 TABLE,
+    KeyConditionExpression:    'userId = :uid AND begins_with(sessionId, :prefix)',
+    ExpressionAttributeValues: { ':uid': userId, ':prefix': 'CHAT#' },
+    ProjectionExpression:      'sessionId',
+    ScanIndexForward:          true, // oldest first
+  })).catch(() => ({ Items: [] as { sessionId: string }[] }));
+
+  const items = (existing.Items ?? []) as { sessionId: string }[];
+  const excess = items.length - MAX_CHAT_MESSAGES;
+
+  if (excess > 0) {
+    await Promise.all(
+      items.slice(0, excess).map(item =>
+        client.send(new DeleteCommand({
+          TableName: TABLE,
+          Key: { userId, sessionId: item.sessionId },
+        })).catch(() => {}),
+      ),
+    );
+  }
 }
 
 // ── Delete all sessions for a user (full reset) ───────────────────────────────
@@ -182,23 +238,21 @@ export async function deleteAllUserSessions(userId: string): Promise<void> {
   const client = getClient();
   if (!client) return;
 
-  // Query all SESSION# rows first
   const result = await client.send(new QueryCommand({
     TableName:                 TABLE,
-    KeyConditionExpression:    'userId = :uid AND begins_with(#sid, :prefix)',
-    ExpressionAttributeNames:  { '#sid': 'sessionId' },
+    KeyConditionExpression:    'userId = :uid AND begins_with(sessionId, :prefix)',
     ExpressionAttributeValues: { ':uid': userId, ':prefix': 'SESSION#' },
-    ProjectionExpression:      '#sid',
+    ProjectionExpression:      'sessionId',
   })).catch(() => ({ Items: [] }));
 
-  const sks = [
+  const sessionIds = [
     ...((result.Items ?? []).map((i: Record<string, unknown>) => i['sessionId'] as string)),
     'ASSESSMENT_PROGRESS',
   ];
 
   await Promise.all(
-    sks.map(sk =>
-      client.send(new DeleteCommand({ TableName: TABLE, Key: { userId, sessionId: sk } }))
+    sessionIds.map(sessionId =>
+      client.send(new DeleteCommand({ TableName: TABLE, Key: { userId, sessionId } }))
         .catch(() => {})
     )
   );

@@ -10,6 +10,8 @@ import { sendPlanEmail }     from './services/email';
 import { pushToGoHighLevel } from './services/ghl';
 import { saveSession, getUserSessions, upsertUserMeta, deleteAllUserSessions, isDynamoEnabled } from './services/dynamo';
 import { retrieveKnowledge, buildKBQuery, isBedrockEnabled } from './services/bedrock';
+import { processChat, ChatResponse }                         from './services/chat';
+import { getChatHistory, isAuroraEnabled }                   from './services/aurora';
 import {
   asyncHandler,
   errorHandler,
@@ -28,7 +30,8 @@ const ENV_CHECK = [
   `GHL_KEY=${process.env.GHL_API_KEY ? '✓' : '✗ MISSING'}`,
   `AI_MODEL=${process.env.AI_MODEL || 'default(haiku)'}`,
   `DYNAMO=${process.env.AWS_ACCESS_KEY_ID ? '✓' : '✗ not configured'}`,
-  `BEDROCK=${process.env.BEDROCK_KNOWLEDGE_BASE_ID ? '✓' : '✗ not configured'}`,
+  `BEDROCK_KB=${process.env.BEDROCK_KNOWLEDGE_BASE_ID ? '✓' : '✗ not configured'}`,
+  `AURORA=${process.env.AURORA_HOST ? '✓' : '✗ not configured'}`,
 ];
 console.log('[boot] Jesse backend starting —', ENV_CHECK.join(' | '));
 
@@ -251,8 +254,9 @@ app.post('/api/assess/domain', asyncHandler(async (req: Request, res: Response) 
     pctScore,
     tier:         scored.tier,
     aiPlan:       plan,
-    criticalGaps: scored.critical_gaps,
-    completedAt:  new Date().toISOString(),
+    criticalGaps:  scored.critical_gaps,
+    jesseSignals:  scored.jesse_signals,
+    completedAt:   new Date().toISOString(),
   };
   await saveSession(session).catch(e => console.warn('[assess/domain] dynamo failed:', e));
   console.log(`[assess/domain] 3/3 SAVED  dynamo=${isDynamoEnabled()}  (${Date.now()-t3}ms)`);
@@ -341,6 +345,29 @@ app.put('/api/user/:uid/meta', asyncHandler(async (req: Request, res: Response) 
   res.json({ success: true });
 }));
 
+// ── POST /api/chat — Jesse chat (RAG + assessment context + Claude Haiku) ─────
+// Body: { userId: string, message: string }
+app.post('/api/chat', asyncHandler(async (req: Request, res: Response) => {
+  const { userId, message } = req.body as { userId?: unknown; message?: unknown };
+
+  if (!userId || typeof userId !== 'string') throw new ValidationError('userId is required');
+  if (!message || typeof message !== 'string' || !message.trim()) {
+    throw new ValidationError('message is required');
+  }
+
+  console.log(`[chat] userId=${userId}  msg="${(message as string).slice(0, 60)}..."`);
+  const result: ChatResponse = await processChat(userId, (message as string).trim());
+  res.json({ success: true, reply: result.reply, history: result.history });
+}));
+
+// ── GET /api/chat/:uid — load full chat history for a user ────────────────────
+app.get('/api/chat/:uid', asyncHandler(async (req: Request, res: Response) => {
+  const uid = req.params['uid'] as string;
+  if (!uid) throw new ValidationError('userId required');
+  const history = await getChatHistory(uid);
+  res.json({ success: true, history });
+}));
+
 // ── DELETE /api/user/:uid/reset — wipe all domain sessions for this user ──────
 app.delete('/api/user/:uid/reset', asyncHandler(async (req: Request, res: Response) => {
   const uid = req.params['uid'] as string;
@@ -362,6 +389,8 @@ app.get('/api/health', (_req: Request, res: Response) => {
     anthropic:   !!process.env.ANTHROPIC_API_KEY,
     ghl:         !!process.env.GHL_API_KEY,
     dynamo:      isDynamoEnabled(),
+    aurora:      isAuroraEnabled(),
+    bedrock_kb:  isBedrockEnabled(),
   });
 });
 

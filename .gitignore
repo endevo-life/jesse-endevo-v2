@@ -32,5 +32,6 @@ build/
 
 # OS
 Thumbs.db
-6 Week Challenge_Rebrand-20260313T055410Z-3-001.zip
-Aryan AI Folder-20260313T055127Z-3-001.zip
+
+# Knowledge base zip files (large binary — ingest locally via scripts/ingest-pdfs.ts)
+*.zip

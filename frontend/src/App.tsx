@@ -11,6 +11,7 @@ import DomainResultScreen  from "./pages/DomainResultScreen";
 import QuizScreen          from "./pages/QuizScreen";
 import LoadingScreen       from "./pages/LoadingScreen";
 import ConfirmationScreen  from "./pages/ConfirmationScreen";
+import JesseChatWindow     from "./components/JesseChatWindow";
 
 function App() {
   const [screen, setScreen]                   = useState<AppScreen>("landing");
@@ -220,6 +221,11 @@ function App() {
       )}
 
       {screen === "confirmation" && <ConfirmationScreen name={userName} />}
+
+      {/* Jesse chat — visible on all screens after login */}
+      {user && (
+        <JesseChatWindow userId={user.uid} displayName={user.displayName} />
+      )}
     </>
   );
 }
