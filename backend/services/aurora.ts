@@ -102,6 +102,19 @@ export async function searchKnowledge(
   }
 }
 
+/**
+ * Returns a Set of all source_file values already in knowledge_base.
+ * Used by the ingest script to skip files that have already been processed.
+ */
+export async function getIngestedFiles(): Promise<Set<string>> {
+  const pool = getPool();
+  if (!pool) return new Set();
+  const result = await pool.query<{ source_file: string }>(
+    'SELECT DISTINCT source_file FROM knowledge_base',
+  );
+  return new Set(result.rows.map(r => r.source_file));
+}
+
 // ── Chat history ──────────────────────────────────────────────────────────────
 
 const MAX_CHAT_MESSAGES = 10; // sliding window per user
